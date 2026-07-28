@@ -5,9 +5,15 @@ The decisions live here. Everything is value-in, value-out:
 ```
 plan(profile, pack, options)      → a session, plus a description of the content it needs
 record(profile, evidence[])       → a new profile
-coverage(profile, pack, tokens)   → how much of this text the learner knows
+coverage(profile, pack, query)    → how much of this text the learner knows
 serialize(profile) / deserialize(text)
 ```
+
+`coverage` takes raw TEXT rather than pre-split tokens, and that is a decision rather than a detail
+(ADR-0004). The pack owns tokenization and the pack is already an argument; accepting somebody
+else's tokens would create a second definition of "running token" that the engine cannot police.
+It also returns **no band verdict at all** below 20 running tokens, because below that length the
+95–98% band has no representable point — the only reachable coverages are 100% and at most 94.7%.
 
 ## The rules that make this folder work
 

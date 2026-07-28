@@ -4,7 +4,9 @@ The runtime-agnostic core of Luraty. **This package is the backend; a mobile app
 frontend.** It holds the decisions — what to teach, when, how an answer is judged, what happens
 next. It must run unchanged under Hermes (React Native), Node, and a browser.
 
-**Nothing is implemented yet.** This is a scaffold. Read this file before adding the first feature.
+**Built so far:** the learner state and the evidence fold (`record`), persistence
+(`serialize`/`deserialize`), language packs (`createPack`/`checkPack`), and coverage. **`plan()` —
+the scheduler — is not built.** Read this file before adding the next piece.
 
 ## The one rule
 
@@ -155,6 +157,14 @@ printable ASCII only — measured, max code point 126. Every Arabic law was ther
 pack cannot even tokenize: ten laws, all green, all vacuous. `src/testing/alphabets.ts` exists so
 that cannot recur. Use `textFor(pack.id)` for behaviour laws; `anyText` only for "never throws".
 
+⚠️ **The same trap has a second floor.** `textFor` is an unbounded `fc.string`, so it emits short
+and empty text constantly — which is fine until a law is about something that only exists in LONG
+text. Every coverage-band law fed `textFor` would take the "too short to classify" branch nearly
+always and prove nothing. Use **`passageFor(packId, words)`** for those: it guarantees a running-
+token count. And `coverage.property.test.ts` carries an explicit **vacuity guard** that asserts all
+three band arms were actually observed during the run — copy that pattern whenever a law describes
+a branch a generator might never reach.
+
 Two laws are worth writing _before_ the functions they describe: `record` is a fold, and
 `serialize` → `deserialize` round-trips with canonical ordering.
 
@@ -167,7 +177,8 @@ npm run mutate     # minutes, not seconds — an audit, never a gate
 Deliberately **not** in `npm run check`, and with no score threshold: a hard number is one that
 eventually gets lowered so a commit can land. Read the survivors, fix what matters, move on.
 
-Score today **86.94%** — `text.ts` 96, `record.ts` 95, `ids.ts` 95, `persist.ts` 83, `pack.ts` 77.
+Score today **87.79%** — `coverage.ts` 97 (zero survivors), `text.ts` 96, `ids.ts` 95, `record.ts`
+93, `persist.ts` 83, `checkPack.ts` 79, `pack.ts` 78.
 
 ### The cross-runtime lane
 

@@ -1,3 +1,4 @@
+import { coverage } from '../core/coverage.js';
 import { deserialize, serialize } from '../core/persist.js';
 import { createProfile } from '../core/profile.js';
 import { record } from '../core/record.js';
@@ -174,6 +175,53 @@ export function fingerprint(): string {
       const result = deserialize(bad);
       lines.push(`deserialize-bad | ${bad} | ${result.ok ? 'ok' : result.error.kind}`);
     }
+  }
+
+  // ── Coverage ────────────────────────────────────────────────────────────────────────────────
+  //
+  // Catches nothing today, and that is the point. Coverage is integer arithmetic over keyed tokens,
+  // so it SHOULD be identical everywhere — this line is what makes that a checked claim instead of
+  // an assumption. It goes red the day someone adds a `fraction` field, a `Math.round(ratio * 100)`
+  // or a sort of `unknownLemmas` (whose idiomatic comparator is the banned `localeCompare`).
+  for (const pack of [frenchPack, arabicPack]) {
+    const v = variety(pack.id);
+    if (v === undefined) continue;
+    const words = pack.id.startsWith('ar')
+      ? ['سوق', 'كتاب', 'مدرسة', 'المدينة', 'ـــ', 'بيت']
+      : ['de', 'la', "l'automne", 'marché', 'vais', 'zzz'];
+    // A passage long enough to classify, with a fixed knowledge set: the first two words proven.
+    const text = Array.from({ length: 4 }, () => words.join(' ')).join(' ');
+    const known = createProfile(pack.id, 0 as Day);
+    const proven = record(
+      known,
+      words.slice(0, 2).flatMap((w) => [
+        {
+          unit: unitKey('recognise', v, pack.key(w)),
+          outcome: 'known' as const,
+          tested: true,
+          day: 0 as Day,
+        },
+        {
+          unit: unitKey('recognise', v, pack.key(w)),
+          outcome: 'known' as const,
+          tested: true,
+          day: 1 as Day,
+        },
+      ]),
+    );
+    const result = coverage(proven, pack, { text, variety: v, direction: 'recognise' });
+    lines.push(
+      `coverage | ${pack.id} | ${result.kind} | ${
+        result.kind === 'measured'
+          ? `${String(result.runningTokens)}/${String(result.knownTokens)}/${String(result.unknownTokens)}/${String(result.unkeyableTokens)}/${result.band}`
+          : result.kind === 'too-short'
+            ? `${String(result.runningTokens)}/${String(result.needsMoreTokens)}`
+            : String(result.unkeyableTokens)
+      }`,
+    );
+    // First-appearance ORDER is part of the contract, so it is pinned rather than the set.
+    const unknownLemmas = result.kind === 'no-words' ? [] : result.unknownLemmas;
+    lines.push(`coverage-unknown | ${pack.id} | ${show(unknownLemmas.join(','))}`);
   }
 
   // ── Number and JSON behaviour, which have historically differed ──────────────────────────────

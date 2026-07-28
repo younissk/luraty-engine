@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import * as engine from './index.js';
-import type { Day, Evidence, Profile, UnitKey, UnitState, Variety } from './index.js';
+import type { Coverage, Day, Evidence, Profile, UnitKey, UnitState, Variety } from './index.js';
 
 /**
  * The types ARE the contract, so they get tested like one.
@@ -110,17 +110,66 @@ describe('record takes a readonly array', () => {
   });
 });
 
+describe('coverage cannot be read without deciding what it measured', () => {
+  it('keeps the band off the variants that have no band', () => {
+    // ⚠️ THE LOAD-BEARING SHAPE ASSERTION for this slice, and one that no runtime test can make.
+    //
+    // The tempting design is one flat object whose `band` includes a fourth value meaning "cannot
+    // tell". It reads fine and it leaves `if (c.band !== 'in-band') makeItEasier()` compiling —
+    // silently treating "cannot tell" as "too hard", which is the exact oscillation the fourth
+    // state exists to prevent. Putting resolution on the `kind` axis makes that line a type error.
+    //
+    // If someone later flattens this, every runtime test still passes.
+    const result = {} as Coverage;
+
+    // @ts-expect-error `band` is not on the union — it exists only once `kind` is 'measured'
+    expect(result.band).toBeUndefined();
+    // @ts-expect-error nor are the counts, until the text is known to have had words in it
+    expect(result.runningTokens).toBeUndefined();
+
+    if (result.kind === 'measured') {
+      expectTypeOf(result.band).toEqualTypeOf<engine.Band>();
+      expectTypeOf(result.runningTokens).toEqualTypeOf<number>();
+    } else if (result.kind === 'too-short') {
+      expectTypeOf(result.needsMoreTokens).toEqualTypeOf<number>();
+      // @ts-expect-error a text too short to classify has no band
+      expect(result.band).toBeUndefined();
+    } else {
+      expectTypeOf(result.unkeyableTokens).toEqualTypeOf<number>();
+      // @ts-expect-error a text with no words has no token counts either
+      expect(result.runningTokens).toBeUndefined();
+    }
+  });
+
+  it('is a closed three-member union', () => {
+    expectTypeOf<Coverage['kind']>().toEqualTypeOf<'no-words' | 'too-short' | 'measured'>();
+    expectTypeOf<engine.Band>().toEqualTypeOf<'too-hard' | 'in-band' | 'too-easy'>();
+  });
+
+  it('requires a direction and a variety on every query', () => {
+    // No default. The recognise/produce gap is the defining feature of this learner, so a coverage
+    // number that does not say which one it measured is not a number anybody can act on.
+    expectTypeOf<engine.CoverageQuery>().toEqualTypeOf<{
+      readonly text: string;
+      readonly variety: Variety;
+      readonly direction: engine.Direction;
+    }>();
+  });
+});
+
 describe('the public surface', () => {
   it('exports exactly what is expected, and nothing more', () => {
     // A surface golden. Widening the barrel is a promise to strangers that is hard to withdraw, so
     // it should be a visible line in a diff rather than a side effect of an import.
     expect(Object.keys(engine).sort()).toEqual([
+      'COVERAGE_BAND',
       'DIRECTIONS',
       'ENGINE_API_VERSION',
       'PROFILE_SCHEMA_VERSION',
       'PROMOTE_AFTER_SUCCESSES',
       'advanceTo',
       'checkPack',
+      'coverage',
       'createPack',
       'createProfile',
       'day',
