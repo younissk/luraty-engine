@@ -185,6 +185,18 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
   const onlyIfRemainderKnown = config.affixes?.onlyIfRemainderKnown ?? true;
 
   function stripPrefixes(word: string): string {
+    // ⚠️ A WORD THE LIST ALREADY KNOWS IS NEVER STRIPPED, and leaving this out was a real bug.
+    //
+    // German `geben` (to give) is in every frequency list, and `ge` is the participle prefix, and
+    // `ben` happened to be a listed word too — so `key('geben')` returned `ben` while the lemma
+    // table mapped `gibt`, `gab` and `gegeben` onto `geben`. One word, two unit keys, and measured
+    // against real news text it cost 105 running tokens: the commonest genuinely-unknown "word" in
+    // the whole sample was a verb every learner knows.
+    //
+    // The same guard already protects compound splitting a few lines down. A word that is in the
+    // lexicon is a word, not a thing to take apart.
+    if (ranks.has(word)) return word;
+
     for (const prefix of prefixes) {
       if (!word.startsWith(prefix)) continue;
       const remainder = word.slice(prefix.length);
@@ -199,13 +211,56 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
     return word;
   }
 
+  const compounds = config.compounds;
+  /** Longest realistic German compound. Past this it is a scanner artefact, not a word. */
+  const MAX_COMPOUND_LENGTH = 40;
+
+  /**
+   * Split a compound into known parts, head last. Returns undefined when it does not decompose.
+   *
+   * Longest-part-first from the left, so `Bahnhofstraße` prefers `bahnhof` over `bahn`. Every part
+   * must be a word the frequency list contains — that is the whole safety argument, and it is the
+   * same one `onlyIfRemainderKnown` makes for affixes.
+   */
+  function decompose(word: string, depth = 0): readonly string[] | undefined {
+    if (depth > 4 || word.length > MAX_COMPOUND_LENGTH) return undefined;
+    if (ranks.has(word) && word.length >= (compounds?.minPartLength ?? 4)) return [word];
+    if (compounds === undefined) return undefined;
+
+    for (let cut = word.length - compounds.minPartLength; cut >= compounds.minPartLength; cut--) {
+      const head = word.slice(0, cut);
+      if (!ranks.has(head)) continue;
+      for (const linker of compounds.linkers) {
+        if (!word.startsWith(head + linker, 0)) continue;
+        const rest = word.slice(cut + linker.length);
+        if (rest.length < compounds.minPartLength) continue;
+        const tail = decompose(rest, depth + 1);
+        if (tail !== undefined) return [head, ...tail];
+      }
+    }
+    return undefined;
+  }
+
   function key(surface: string): Lemma {
     const normalized = applySteps(config.normalize, surface);
     // An explicit lemma entry beats a derived one: irregular forms are exactly the ones affix rules
     // get wrong, and they are why the map exists.
     const mapped = lemmas.get(normalized);
     if (mapped !== undefined) return mapped;
-    return stripPrefixes(normalized);
+
+    const stripped = stripPrefixes(normalized);
+    // A word the list already knows is never a compound — `Fenster` must not decompose into
+    // `fen` + `ster`, and checking membership first makes that impossible rather than unlikely.
+    if (compounds === undefined || ranks.has(stripped)) return stripped;
+
+    const parts = decompose(stripped);
+    // Head-final: German compounds take their meaning and their gender from the last element.
+    // A single-element result is not a compound, so it changes nothing.
+    if (parts !== undefined && parts.length > 1) {
+      const head = parts[parts.length - 1];
+      if (head !== undefined) return head;
+    }
+    return stripped;
   }
 
   const pack: LanguagePack = {
