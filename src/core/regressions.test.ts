@@ -213,4 +213,25 @@ describe('regressions', () => {
     expect(germanPack.key('gehen')).toBe('gehen');
     expect(germanPack.key('gerade')).toBe('gerade');
   });
+
+  it('indexes the LEMMA table by its normalized form too, not just the frequency list', () => {
+    // Was: `buildRanks` was fixed to normalize, and the lemma map was left raw — so the same defect
+    // survived in the other half of `key()`. A pack author writing the natural `"läuft": "laufen"`
+    // got `key('läuft') === 'laeuft'`: the lookup passes an already-normalized surface, so a raw
+    // key can never match. The inflected form and the infinitive became two separate units, and
+    // proving one never credited the other.
+    expect(germanPack.key('läuft')).toBe('laufen');
+    expect(germanPack.key('fährt')).toBe('fahren');
+    expect(germanPack.key('trägt')).toBe('tragen');
+
+    // The VALUE is normalized as well, which is the half that is easy to miss: a lemma target
+    // containing an umlaut would otherwise be a second address for the same word.
+    expect(germanPack.key('zählt')).toBe('zaehlen');
+    expect(germanPack.key('zählen')).toBe('zaehlen');
+    expect(germanPack.key('zählt')).toBe(germanPack.key('zählen'));
+
+    // …and still distinct from the word it is NOT.
+    expect(germanPack.key('zahlt')).toBe('zahlen');
+    expect(germanPack.key('zählt')).not.toBe(germanPack.key('zahlt'));
+  });
 });

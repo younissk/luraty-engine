@@ -154,7 +154,31 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
   //
   // A Map has no prototype chain to fall through, which removes the whole class rather than
   // patching the instances of it.
-  const lemmas = new Map(Object.entries(data.lemmas ?? {}));
+  //
+  // ⚠️ BOTH SIDES NORMALIZED, for exactly the reason `buildRanks` normalizes — this is the same
+  // defect, and fixing it there only fixed half of it.
+  //
+  // `key()` looks this table up with an already-normalized surface form, so a raw key can never
+  // match. Found with real German: a pack author writes the natural `"läuft": "laufen"`, and
+  // `key('läuft')` normalizes to `laeuft`, misses the table entirely, and returns `laeuft` — so the
+  // inflected form and the infinitive become two separate units and proving one never credits the
+  // other.
+  //
+  // The VALUE is normalized too, and that matters just as much: leaving it raw would make
+  // `key('läuft')` return `laufen` while `key('läufst')` … also returns `laufen`, but
+  // `key('laufen')` returns `laufen` — fine here, yet the moment a lemma target itself contains an
+  // umlaut (`"zählt": "zählen"`) the raw value `zählen` and the normalized `zaehlen` are two
+  // different addresses for one word. Normalizing both ends means a pack file can be written in
+  // ordinary German and still address knowledge consistently.
+  const lemmas = new Map<string, Lemma>();
+  for (const [surface, lemma] of Object.entries(data.lemmas ?? {})) {
+    const from = applySteps(config.normalize, surface);
+    const to = applySteps(config.normalize, lemma);
+    if (from.length === 0 || to.length === 0) continue;
+    // First entry wins, matching `buildRanks` — a duplicate later in the file is the author's
+    // second thought, and silently overwriting makes the first one vanish without a word.
+    if (!lemmas.has(from)) lemmas.set(from, to);
+  }
 
   // Longest prefix first, so ال is tried before ا and the more specific rule wins.
   const prefixes = [...(config.affixes?.prefixes ?? [])].sort((a, b) => b.length - a.length);

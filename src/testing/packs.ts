@@ -158,10 +158,17 @@ const GERMAN_DATA: PackData = {
     trinke: 'trinken',
     trinkt: 'trinken',
     getrunken: 'trinken',
-    // ⚠️ These are the umlaut pairs. They are DIFFERENT LEMMAS on purpose — `foldGermanUmlauts`
-    // keeps them apart, and a test asserts it, because the old fold merged them.
-    zaehlt: 'zaehlen',
+    // ⚠️ Written in NATURAL German, umlauts and all. `createPack` normalizes both sides of this
+    // table, so a pack author never has to hand-transliterate. Before it did, `läuft` keyed to
+    // `laeuft` instead of `laufen` — the inflected form and the infinitive became two units.
+    //
+    // These two rows are also the umlaut pair: they stay DIFFERENT lemmas, because zählen (to
+    // count) and zahlen (to pay) are different words.
+    zählt: 'zählen',
     zahlt: 'zahlen',
+    läuft: 'laufen',
+    fährt: 'fahren',
+    trägt: 'tragen',
   },
 };
 

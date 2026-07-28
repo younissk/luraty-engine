@@ -106,9 +106,24 @@ function say(line: string): void {
   else g.console?.log(line);
 }
 
-export function runDemo(days = 30, language = 'de'): void {
-  const course = COURSES[language] ?? COURSES.de;
-  if (course === undefined) return;
+/**
+ * A pack loaded from disk by a host, replacing the built-in fixture.
+ *
+ * The engine cannot read files, so a real pack can only ever arrive this way — which is the point.
+ * `scripts/demo.mjs --pack ../packs/de` is the smallest host that does it.
+ */
+export type PackOverride = {
+  readonly pack: LanguagePack;
+  readonly passage?: string;
+};
+
+export function runDemo(days = 30, language = 'de', override?: PackOverride): void {
+  const base = COURSES[language] ?? COURSES.de;
+  if (base === undefined) return;
+  const course: Course =
+    override === undefined
+      ? base
+      : { ...base, pack: override.pack, passage: override.passage ?? base.passage };
   const v = variety(course.variety);
   if (v === undefined) return;
 
