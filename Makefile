@@ -24,6 +24,11 @@ check: ## The gate: format, typecheck, lint, test. ~3s. Run before every commit.
 test: ## Run the test suite once.
 	npm test
 
+.PHONY: demo
+demo: ## Run a simulated learner for 30 days and print what the engine decides. Try 'make demo'.
+	@# Not a test. The suite proves the engine is correct; this shows what correct looks like.
+	npm run demo
+
 .PHONY: watch
 watch: ## Run tests continuously while you edit.
 	npm run test:watch

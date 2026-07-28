@@ -39,7 +39,8 @@
     "prepare": "husky",
     "mutate": "stryker run",
     "coverage": "vitest run --coverage",
-    "test:hermes": "node scripts/hermes.mjs"
+    "test:hermes": "node scripts/hermes.mjs",
+    "demo": "node scripts/demo.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",
