@@ -20,9 +20,16 @@ export type { Profile } from './model/profile.js';
 // ── What changes it ─────────────────────────────────────────────────────────────────────────────
 export type { Evidence, Outcome } from './model/evidence.js';
 
+// ── Persistence ─────────────────────────────────────────────────────────────────────────────────
+// `deserialize` returns a result and never throws: it runs at app launch against data written by an
+// older build, and a throw there is a learner whose app will not open.
+export type { Decoded, DecodeError, DecodeErrorKind } from './model/wire.js';
+export { PROFILE_SCHEMA_VERSION } from './model/wire.js';
+
 // ── Operations ──────────────────────────────────────────────────────────────────────────────────
 export { advanceTo, createProfile, hasMet, unitState } from './core/profile.js';
 export { PROMOTE_AFTER_SUCCESSES, record } from './core/record.js';
+export { deserialize, serialize } from './core/persist.js';
 
 /**
  * The version of this package's public contract.
