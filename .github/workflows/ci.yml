@@ -1,0 +1,56 @@
+name: CI
+
+# ⚠️ THIS DOES NOT RUN YET, AND THAT IS EXPECTED.
+# The repository is private and the owner's GitHub Actions are billing-blocked account-wide — every
+# job dies in a few seconds with `steps: []`. It is committed now as an honest, ready-to-run
+# definition so that the day this repo goes public (public repos get free Actions minutes) CI is a
+# switch-flip rather than a project.
+#
+# Until then the real gate is local: `.githooks/pre-commit` plus the three npm scripts below.
+# Do not mistake a green tick here for verification — there is no tick.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: typecheck · lint · test
+    runs-on: ubuntu-latest
+    strategy:
+      # Don't cancel Node 24 because Node 22 failed — when they differ, the difference IS the bug.
+      fail-fast: false
+      matrix:
+        # Node 20 reached EOL 2026-04-30. Two currently-supported majors is the honest matrix.
+        # NOTE: this proves the test suite runs on two Node versions. It does NOT prove the package
+        # runs on Hermes, which is the narrowest runtime it actually ships to — that needs a real
+        # Hermes lane, and until one exists the `lib: ES2022` setting plus the ICU lint rules are
+        # what stand between you and a phone-only failure.
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      # Separate steps on purpose: a red X should name the lane that broke without opening the log.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test

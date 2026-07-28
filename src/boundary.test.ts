@@ -32,7 +32,33 @@ const pkg = pkgJson as unknown as {
   peerDependencies?: Record<string, string>;
 };
 
-/** Anything that binds the engine to a UI runtime, a device, or a database. */
+/**
+ * The COMPLETE set of packages this repo may install, dev included.
+ *
+ * An allowlist rather than a denylist, because the dangerous additions are the ones nobody thinks
+ * to ban. The worked example: installing a docs site (VitePress, Docusaurus, Starlight, Nextra)
+ * into this package drags Vue or React into `node_modules` — and from that moment
+ * `import { ref } from 'vue'` typechecks GREEN inside `src/`, because resolution finds it. The
+ * denylist below does not mention vue, and never would have. The compiler-enforced boundary is the
+ * whole premise of this package, and a transitive UI framework dissolves it silently.
+ *
+ * So: every new dependency is a deliberate edit to this line, reviewed on its own merits.
+ * If a tool needs a UI framework, it belongs in a SIBLING package, not this one.
+ */
+const ALLOWED_DEPENDENCIES = [
+  '@eslint/js',
+  'eslint',
+  'typescript',
+  'typescript-eslint',
+  'vitest',
+] as const;
+
+/**
+ * Anything that binds the engine to a UI runtime, a device, or a database.
+ *
+ * Redundant with the allowlist above and kept deliberately: the allowlist ENFORCES, this one
+ * DOCUMENTS. When the allowlist fails, this list is what tells the next person why the rule exists.
+ */
 const BANNED = [
   'react',
   'react-dom',
@@ -55,6 +81,17 @@ function declaredDependencies(): string[] {
 }
 
 describe('engine boundary', () => {
+  it('installs nothing outside the allowlist', () => {
+    const declared = declaredDependencies().sort();
+    expect(
+      declared,
+      `A dependency was added that is not on ALLOWED_DEPENDENCIES. That is not automatically wrong ` +
+        `— but it is a decision, so make it here. Ask: can this package pull in a UI framework, ` +
+        `even transitively? If yes it does not belong in the engine; put it in a sibling package. ` +
+        `Docs-site generators are the usual culprit.`,
+    ).toEqual([...ALLOWED_DEPENDENCIES].sort());
+  });
+
   it('declares no UI-runtime dependency', () => {
     const offenders = declaredDependencies().filter(
       (d) =>

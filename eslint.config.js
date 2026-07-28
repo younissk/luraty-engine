@@ -51,6 +51,37 @@ export default tseslint.config(
           message:
             'Determinism: no argless `new Date()` in the engine. Pass the day in as data.',
         },
+
+        // ── The Hermes / ICU rules ──────────────────────────────────────────────────────────────
+        // Hermes ships WITHOUT full ICU. Every API below exists in Node and in your browser, so
+        // `tsc` is green, the tests pass, and the phone is where it breaks — either throwing or,
+        // worse, quietly returning a different answer than it did on your laptop.
+        //
+        // This is not hypothetical for THIS package: the two language-pack functions most likely to
+        // be written first are `split` (text → pieces) and `compare` (fold accents / fold
+        // diacritics), and the idiomatic implementations of those are `Intl.Segmenter` and
+        // `normalize()` / `localeCompare()`. The obvious code is the broken code.
+        {
+          selector: "MemberExpression[object.name='Intl']",
+          message:
+            'Runtime fidelity: no Intl in the engine. Hermes ships without full ICU, so this is green on Node and broken on a phone. Locale-aware behaviour belongs in a language pack as explicit data (a collation table, an explicit character map), not in a runtime API.',
+        },
+        {
+          selector: "CallExpression[callee.property.name='localeCompare']",
+          message:
+            'Runtime fidelity: no localeCompare() in the engine — its ordering depends on ICU data Hermes does not ship. Compare canonical keys produced by the language pack instead.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name=/^toLocale(Lower|Upper)Case$/]",
+          message:
+            'Runtime fidelity: no toLocaleLowerCase/UpperCase in the engine (locale-dependent, ICU-backed). Use toLowerCase/toUpperCase, or fold the case explicitly in the language pack.',
+        },
+        {
+          selector: "CallExpression[callee.property.name='normalize']",
+          message:
+            'Runtime fidelity: no String.prototype.normalize() in the engine — Unicode normalization is ICU-backed and unreliable on Hermes. Diacritic folding is a language-pack concern: ship it as an explicit character map.',
+        },
       ],
     },
   },

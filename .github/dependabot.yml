@@ -1,0 +1,27 @@
+version: 2
+
+# Dependabot is NOT Actions — it runs on private repos and is unaffected by the Actions billing
+# block, so unlike ci.yml this one is live today.
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # One PR for everything, not one per package. This repo has zero runtime dependencies and a
+    # handful of devDeps; ungrouped that is ~5 PRs a week, which is exactly how a solo developer
+    # learns to ignore Dependabot entirely. Grouped, it is one review a week.
+    groups:
+      dev-dependencies:
+        patterns: ['*']
+    # ⚠️ A vitest bump needs a matching @vitest/coverage-v8 bump — that package peer-depends on an
+    # EXACT vitest patch version. When coverage lands, either add it to this group (it already is,
+    # via '*') or the install breaks. Left as a note because the trap is easy to hit.
+    open-pull-requests-limit: 3
+
+  # The one people forget, and the one that actually matters for supply chain: a pinned action is
+  # third-party code executing with a token in your CI.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

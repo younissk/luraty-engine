@@ -61,16 +61,32 @@ These are the rules the scaffold already encodes. Keep them.
 ## Verify
 
 ```bash
-npm run typecheck && npm run lint && npm test
+npm run typecheck && npm run lint && npm test    # ~3.3s total
+git config core.hooksPath .githooks              # once per clone
 ```
 
-All three are wired into the parent repo's gate, which loops over packages and runs whichever of
-`lint` / `typecheck` / `test` each one defines.
+All three lanes are also wired into the parent repo's gate, which loops over packages and runs
+whichever of `lint` / `typecheck` / `test` each one defines.
 
-**The determinism rule is a lint error, not prose** — `Date.now()`, `Math.random()` and argless
-`new Date()` are rejected in `src/` (tests excepted). The config is recovered from the pre-reset
-tree rather than re-derived. Note it carries **no exempt list**: if a file in here seems to need
-one, that file belongs on the other side of the boundary.
+**Two rule families are lint errors, not prose.** Both reject in `src/` with tests excepted, and
+both carry **no exempt list** — if a file in here seems to need one, that file belongs on the other
+side of the boundary.
+
+- **Determinism** — `Date.now()`, `Math.random()`, argless `new Date()`. Recovered from the
+  pre-reset config rather than re-derived.
+- **Runtime fidelity** — `Intl.*`, `localeCompare()`, `toLocale*Case()`, `normalize()`. Hermes ships
+  without full ICU, so these are green on Node and broken on a phone. This one matters more than it
+  looks: the first two language-pack functions anyone writes are `split` and `compare`, and their
+  idiomatic implementations are `Intl.Segmenter` and `normalize()`. **The obvious code is the broken
+  code.** Locale behaviour ships as explicit data in a pack.
+
+**Dependencies are an allowlist, not a denylist.** `src/boundary.test.ts` pins the exact set. A
+denylist cannot catch the realistic failure: installing a docs-site generator here pulls Vue or
+React into `node_modules`, and `import { ref } from 'vue'` then typechecks green inside `src/`.
+
+⚠️ **`@vitest/coverage-v8` peer-depends on an EXACT vitest patch version.** When coverage is added,
+the two must be bumped together or the install breaks. Dependabot groups all devDeps into one PR
+partly for this reason.
 
 ## Planned layout
 
@@ -97,3 +113,24 @@ state:
 - `record` is a fold — applying evidence one at a time equals applying it in a batch.
 - `serialize` → `deserialize` round-trips, and serialization is canonically key-ordered (JS objects
   keep insertion order, so an unsorted `serialize` makes every replay hash test randomly flaky).
+
+Everything below is deliberately **not yet installed**, each with the trigger that turns it on.
+Adding any of them earlier is ceremony; adding them later is negligence.
+
+| Add | When |
+| --- | --- |
+| `fast-check` (property tests) | the day `src/model/` types land |
+| `expectTypeOf` (already in vitest — no install) | same day; the public types are a contract |
+| `@vitest/coverage-v8` + a branch ratchet | the first real module in `src/core/`, never before — on an empty repo the ratchet starts at 100% and blocks the first feature |
+| goldens via `toMatchFileSnapshot` | once `plan()` returns a shape. Never put `-u` in an npm script: regenerating a golden is a human deciding what "correct" means |
+| a real Hermes lane | the first real arithmetic in `src/core/` |
+| Stryker, as a hand-run audit | the first spacing/rating function. Read the survivors once; never a gate |
+
+## Docs
+
+Plain markdown under `docs/`, then TypeDoc over the same source when the barrel has real exports.
+
+**Not MkDocs**, despite it being asked for by name — it cannot read TypeScript, so the API reference
+would be hand-written and rot, and it puts a Python toolchain in a TypeScript repo. **Not VitePress,
+Docusaurus, Starlight or Nextra *in this package*** — see the dependency allowlist above. When a
+docs site is genuinely wanted, it goes in a sibling package where its React/Vue cannot reach `src/`.
