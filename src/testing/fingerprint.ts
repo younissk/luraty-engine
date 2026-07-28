@@ -8,7 +8,7 @@ import type { Day } from '../model/ids.js';
 import { parseUnitKey, unitKey, variety } from '../model/ids.js';
 import type { NormalizeStep } from '../model/pack.js';
 
-import { arabicPack, frenchPack } from './packs.js';
+import { arabicPack, frenchPack, germanPack } from './packs.js';
 
 /**
  * A deterministic fingerprint of everything that could plausibly differ between JavaScript engines.
@@ -51,6 +51,15 @@ const CORPUS = [
   'straße',
   'çà et là',
   'naïve',
+  // German: the umlaut pairs that a script-level fold destroys. schön/schon and zählen/zahlen are
+  // different words, and the two-letter fold is the only thing keeping them apart.
+  'schön',
+  'schon',
+  'zählen',
+  'zahlen',
+  'Bär',
+  'GROSSE STRAßE',
+  'Über',
   // Case folding, where a locale-aware implementation would differ from a locale-independent one.
   'İstanbul',
   'ISTANBUL',
@@ -78,6 +87,7 @@ const STEPS: readonly NormalizeStep[] = [
   'normalizeArabicAlef',
   'normalizeArabicFinals',
   'foldLatinDiacritics',
+  'foldGermanUmlauts',
 ];
 
 /** Escapes to code points so a diff is readable and cannot be confused by terminal shaping. */
@@ -115,7 +125,7 @@ export function fingerprint(): string {
   }
 
   // ── The packs end to end ─────────────────────────────────────────────────────────────────────
-  for (const pack of [frenchPack, arabicPack]) {
+  for (const pack of [frenchPack, arabicPack, germanPack]) {
     for (const input of CORPUS) {
       const tokens = pack.split(input);
       const keys = tokens.map((t) => pack.key(t));

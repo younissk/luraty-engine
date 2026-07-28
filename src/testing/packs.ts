@@ -92,6 +92,81 @@ const ARABIC_DATA: PackData = {
 
 export const arabicPack: LanguagePack = build(ARABIC_CONFIG, ARABIC_DATA);
 
+// ── German ──────────────────────────────────────────────────────────────────────────────────────
+
+const GERMAN_CONFIG: PackConfig = {
+  id: 'de',
+  // No apostrophe: German does not elide the way French does, so it is punctuation here rather than
+  // a word character. The umlauts and ß are inside the class so they survive to the fold step.
+  tokenize: { strategy: 'regex', pattern: '[a-zA-ZäöüÄÖÜßẞ]+' },
+  // ⚠️ ORDER MATTERS, and it is the whole reason both fold steps appear.
+  //
+  // `foldGermanUmlauts` runs FIRST and turns ä into `ae`. Only then does `foldLatinDiacritics` run,
+  // which handles loan-word accents (`Café` → `cafe`) and finds no umlauts left to ruin. Reverse
+  // them and the Latin table gets ä first, maps it to `a`, and schön collapses into schon.
+  normalize: ['lowercase', 'stripPunctuation', 'foldGermanUmlauts', 'foldLatinDiacritics'],
+  // `ge-` is the participle prefix. It is only safe because `onlyIfRemainderKnown` refuses a strip
+  // whose remainder is not a word the pack has heard of: `gesagt` → `sagt` is right, and `Geld` →
+  // `ld`, `gehen` → `hen`, `gerade` → `rade` are all refused because none of those is in the list.
+  affixes: { prefixes: ['ge'], onlyIfRemainderKnown: true },
+  compare: ['lowercase', 'stripPunctuation', 'foldGermanUmlauts', 'foldLatinDiacritics'],
+};
+
+const GERMAN_DATA: PackData = {
+  // Roughly frequency-ordered, then the content words the demo passage needs. A real list runs to
+  // tens of thousands and comes from a corpus; this is a fixture.
+  frequency:
+    'der die und in den von zu das mit sich des auf fuer ist im dem nicht ein eine als auch es an ' +
+    'werden aus er hat dass sie nach wird bei einer um am sind noch wie einem ueber einen so zum ' +
+    'war haben nur oder aber vor zur bis mehr durch man sein wurde sei ich wir ihr mich mir dich ' +
+    'dir uns euch kein sehr schon immer wenn dann weil dass hier dort heute morgen gestern jahr ' +
+    'tag zeit mensch kind frau mann haus stadt land wasser brot markt strasse bahnhof arzt zeitung ' +
+    'regierung schule buch tuer fenster garten baum blume himmel sonne mond stern gehen kommen ' +
+    'machen sagen sehen geben nehmen finden denken wissen kennen lesen schreiben sprechen hoeren ' +
+    'essen trinken kaufen verkaufen wohnen arbeiten lernen spielen laufen fahren schoen gross ' +
+    'klein alt neu jung gut schlecht warm kalt schnell langsam',
+  lemmas: {
+    // Irregular verbs — exactly the forms affix rules cannot reach. Keys AND values are normalized
+    // forms, because `key()` consults this map with the already-normalized surface.
+    bin: 'sein',
+    bist: 'sein',
+    ist: 'sein',
+    sind: 'sein',
+    seid: 'sein',
+    war: 'sein',
+    waren: 'sein',
+    gewesen: 'sein',
+    habe: 'haben',
+    hast: 'haben',
+    hat: 'haben',
+    habt: 'haben',
+    hatte: 'haben',
+    hatten: 'haben',
+    gehe: 'gehen',
+    gehst: 'gehen',
+    geht: 'gehen',
+    ging: 'gehen',
+    gegangen: 'gehen',
+    kaufe: 'kaufen',
+    kaufst: 'kaufen',
+    kauft: 'kaufen',
+    gekauft: 'kaufen',
+    lese: 'lesen',
+    liest: 'lesen',
+    las: 'lesen',
+    gelesen: 'lesen',
+    trinke: 'trinken',
+    trinkt: 'trinken',
+    getrunken: 'trinken',
+    // ⚠️ These are the umlaut pairs. They are DIFFERENT LEMMAS on purpose — `foldGermanUmlauts`
+    // keeps them apart, and a test asserts it, because the old fold merged them.
+    zaehlt: 'zaehlen',
+    zahlt: 'zahlen',
+  },
+};
+
+export const germanPack: LanguagePack = build(GERMAN_CONFIG, GERMAN_DATA);
+
 // ── Exposed configs, for tests that need to vary one setting ────────────────────────────────────
 
 export const fixtures = {
@@ -99,4 +174,6 @@ export const fixtures = {
   frenchData: FRENCH_DATA,
   arabicConfig: ARABIC_CONFIG,
   arabicData: ARABIC_DATA,
+  germanConfig: GERMAN_CONFIG,
+  germanData: GERMAN_DATA,
 } as const;

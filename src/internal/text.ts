@@ -178,6 +178,54 @@ function foldLatinDiacritics(s: string): string {
   return out;
 }
 
+/**
+ * German umlauts to their two-letter forms: ä→ae, ö→oe, ü→ue, ß→ss.
+ *
+ * ⚠️ THE POINT IS THAT THIS IS NOT `foldLatinDiacritics`, AND GERMAN IS WHY.
+ *
+ * `pack.ts` already argues that a generic `stripDiacritics` is a lie because Arabic and Latin have
+ * nothing in common mechanically. German shows the same mistake one level further down: French and
+ * German are the *same script* and want *opposite* answers. French `é→e` is correct — `café` and
+ * `cafe` are one word. German `ö→o` is wrong, and destructively so. Measured against the real fold
+ * table, every one of these pairs collapsed to one key:
+ *
+ * | folded to `o`/`a`/`u` | …which is a different word |
+ * | --------------------- | -------------------------- |
+ * | schön (beautiful)     | schon (already)            |
+ * | zählen (to count)     | zahlen (to pay)            |
+ * | fördern (to promote)  | fordern (to demand)        |
+ * | drücken (to press)    | drucken (to print)         |
+ * | schwül (humid)        | schwul (gay)               |
+ * | Bär (bear)            | Bar (bar)                  |
+ *
+ * A learner who proved `zahlen` would be credited with `zählen`, and the engine would then never
+ * teach them one of the two. The two-letter fold is also what German itself does when umlauts are
+ * unavailable — passports, domain names, phone books — so it is the language's own convention
+ * rather than an invention.
+ *
+ * `ß→ss` is shared with {@link LATIN_FOLD} and correct in both.
+ */
+const GERMAN_FOLD: Readonly<Record<string, string>> = {
+  ä: 'ae',
+  ö: 'oe',
+  ü: 'ue',
+  ß: 'ss',
+  // The capitals are here so the step does not silently depend on `lowercase` running first. A pack
+  // author who omits it gets the right answer anyway.
+  Ä: 'ae',
+  Ö: 'oe',
+  Ü: 'ue',
+  ẞ: 'ss',
+};
+
+function foldGermanUmlauts(s: string): string {
+  let out = '';
+  for (const ch of s) {
+    out += GERMAN_FOLD[ch] ?? ch;
+  }
+  return out;
+}
+
 function stripPunctuation(s: string): string {
   let out = '';
   for (const ch of s) {
@@ -206,6 +254,8 @@ export function applyStep(step: NormalizeStep, s: string): string {
       return normalizeArabicFinals(s);
     case 'foldLatinDiacritics':
       return foldLatinDiacritics(s);
+    case 'foldGermanUmlauts':
+      return foldGermanUmlauts(s);
     default:
       return assertNever(step, 'NormalizeStep');
   }

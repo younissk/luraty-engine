@@ -4,10 +4,10 @@ import { advanceTo, createProfile } from '../core/profile.js';
 import { record } from '../core/record.js';
 import type { Evidence } from '../model/evidence.js';
 import { unitKey, variety, type Day, type UnitKey } from '../model/ids.js';
-import type { LanguagePack } from '../model/pack.js';
+import type { LanguagePack, Lemma } from '../model/pack.js';
 import type { Profile } from '../model/profile.js';
 
-import { arabicPack } from './packs.js';
+import { arabicPack, germanPack } from './packs.js';
 
 /**
  * A learner, thirty days, printed.
@@ -19,69 +19,49 @@ import { arabicPack } from './packs.js';
  * Everything here uses only the public functions, in the order a real host would call them:
  * `plan` → show content → `record` what happened → `coverage` to size the next passage.
  *
+ * The passage is REAL TEXT rather than a word list with weights, because the token distribution
+ * then comes from the language instead of from a guess — and because someone who speaks the
+ * language can read the output and tell you whether it is nonsense.
+ *
  * @module
  */
 
-const AR = variety('ar-msa') ?? ('ar-msa' as ReturnType<typeof variety> & string);
 const D = (n: number): Day => n as Day;
 
-/**
- * The words this learner is working on — the whole Arabic fixture vocabulary.
- *
- * ⚠️ THE SIZE IS LOAD-BEARING, which a first draft of this demo proved by getting it wrong. With
- * twelve words the coverage band was UNREACHABLE: the learner went from 88% to 100% in one day and
- * skipped 95–98% entirely, because each word carried eight tokens and there was no way to land
- * between them. That is not an engine bug, it is the grain of the content — and it is the open
- * question ADR-0004 hands to the product. A tail of words worth one or two tokens each is what gives
- * the band somewhere to be.
- */
-const VOCAB = [
-  'في',
-  'من',
-  'على',
-  'أن',
-  'إلى',
-  'عن',
-  'مع',
-  'هذا',
-  'التي',
-  'كان',
-  'قد',
-  'لا',
-  'ما',
-  'هو',
-  'كل',
-  'بعد',
-  'بين',
-  'حول',
-  'عند',
-  'سوق',
-  'كتاب',
-  'مدرسة',
-  'بيت',
-  'ماء',
-  'خبز',
-  'شارع',
-  'مطار',
-  'طبيب',
-  'قطار',
-  'جريدة',
-  'حكومة',
-  'ولد',
-  'وقت',
-  'مدينة',
-] as const;
+type Course = {
+  readonly pack: LanguagePack;
+  readonly variety: string;
+  /** Real text the learner reads every day. */
+  readonly passage: string;
+  /** Words a heritage speaker grew up hearing — knowledge is lumpy, not a frequency prefix. */
+  readonly familiar: readonly string[];
+};
 
-/** Zipfian: a few words carry most of the tokens, and the tail appears once. Like real text. */
-const WEIGHTS = [
-  18, 14, 11, 9, 8, 7, 6, 5, 5, 4, 4, 3, 3, 3, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-  1, 1,
-];
-
-/** 120 running tokens of it, which is comfortably above the band's 20-token floor. */
-const PASSAGE = VOCAB.flatMap((word, i) =>
-  Array.from({ length: WEIGHTS[i] ?? 1 }, () => word),
-).join(' ');
+const COURSES: Readonly<Record<string, Course>> = {
+  de: {
+    pack: germanPack,
+    variety: 'de',
+    passage:
+      'Der Mann geht am Morgen aus dem Haus. Er kauft Brot und Wasser auf dem Markt in der ' +
+      'Stadt. Die Straße ist heute sehr voll, denn viele Menschen kommen und gehen. Ein Kind ' +
+      'liest eine Zeitung vor dem Fenster. Die Frau sagt, dass die Schule schon offen ist. Der ' +
+      'Arzt wohnt in dem großen Haus mit dem grünen Garten. Wir trinken Wasser und essen Brot, ' +
+      'und dann sprechen wir über die Zeit und über das Jahr. Am Abend fährt der Zug zum ' +
+      'Bahnhof, und die Sonne geht langsam unter. Das Kind findet das schön und will morgen ' +
+      'wieder kommen.',
+    familiar: ['haus', 'wasser', 'brot', 'kind', 'mann', 'frau', 'gehen', 'essen', 'trinken'],
+  },
+  ar: {
+    pack: arabicPack,
+    variety: 'ar-msa',
+    passage:
+      'في المدينة سوق كبير. كل يوم يذهب الرجل من البيت إلى السوق. هو يشتري خبز وماء. ' +
+      'المدرسة بعد الشارع، والمطار حول المدينة. الطبيب في البيت الكبير. القطار يذهب إلى ' +
+      'المطار كل وقت. الولد يقرأ الجريدة عند البيت. هذا هو السوق التي كان بين الشارع ' +
+      'والمدرسة. مع الوقت كل شيء بعد ذلك.',
+    familiar: ['بيت', 'ماء', 'خبز', 'سوق'],
+  },
+};
 
 /** A seeded PRNG. No `Math.random`: the whole point is that this run is reproducible. */
 function rng(seed: number): () => number {
@@ -94,19 +74,29 @@ function rng(seed: number): () => number {
   };
 }
 
-/** Grew up hearing these — the heritage shape: lumpy and domain-flavoured, not a frequency prefix. */
-function knowsAlready(word: string): boolean {
-  return ['بيت', 'ماء', 'خبز', 'سوق'].includes(word);
+/** Greedy word wrap. No `Intl.Segmenter`: it is banned here, and spaces are enough for this. */
+function wrap(text: string, width: number): readonly string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const w of text.split(' ')) {
+    if (line.length + w.length + 1 > width) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = line.length === 0 ? w : `${line} ${w}`;
+    }
+  }
+  if (line.length > 0) lines.push(line);
+  return lines;
 }
 
-function bar(value: number, total: number, width = 28): string {
+function bar(value: number, total: number, width = 24): string {
   const filled = total === 0 ? 0 : Math.round((value / total) * width);
   return '█'.repeat(filled) + '·'.repeat(Math.max(0, width - filled));
 }
 
-function shortKey(unit: UnitKey): string {
-  const parts = unit.split(':');
-  return `${parts[0] === 'produce' ? 'say ' : 'read'} ${parts.slice(2).join(':')}`;
+function word(unit: UnitKey): string {
+  return unit.split(':').slice(2).join(':');
 }
 
 function say(line: string): void {
@@ -116,41 +106,65 @@ function say(line: string): void {
   else g.console?.log(line);
 }
 
-export function runDemo(days = 30, pack: LanguagePack = arabicPack): void {
+export function runDemo(days = 30, language = 'de'): void {
+  const course = COURSES[language] ?? COURSES.de;
+  if (course === undefined) return;
+  const v = variety(course.variety);
+  if (v === undefined) return;
+
+  const pack = course.pack;
   const next = rng(42);
-  let profile: Profile = createProfile('ar', D(0));
+  let profile: Profile = createProfile(language, D(0));
+
+  // The vocabulary IS the passage — every distinct lemma the pack finds in it. Nothing is
+  // hand-listed, so the token distribution is the language's own.
+  const lemmas: Lemma[] = [];
+  const seen = new Set<Lemma>();
+  for (const surface of pack.split(course.passage)) {
+    const lemma = pack.key(surface);
+    if (lemma.length === 0 || seen.has(lemma)) continue;
+    seen.add(lemma);
+    lemmas.push(lemma);
+  }
+  const tokens = pack.split(course.passage).length;
 
   say('');
-  say(`  A learner, ${String(days)} days, on the ${pack.id} pack.`);
-  say('  Nothing here is random: same seed, same run, every time and on every runtime.');
+  say(`  ${pack.id} — a learner, ${String(days)} days.`);
+  say(`  ${String(tokens)} running tokens, ${String(lemmas.length)} distinct words.`);
+  say('  Seeded: same run every time, on every runtime.');
   say('');
-  say('  day  drilled                        pool  known   coverage of the reading');
-  say('  ───  ────────────────────────────  ─────  ─────  ─────────────────────────────────');
+  for (const line of wrap(course.passage, 88)) say(`    ${line}`);
+  say('');
+  say('  day  drilled                                        known    coverage');
+  say('  ───  ────────────────────────────────────────────  ───────  ────────────────────────');
 
   for (let d = 1; d <= days; d++) {
     profile = advanceTo(profile, D(d));
 
     // 1. THE ENGINE DECIDES. No pack, no clock, no content — just the profile and the day.
-    const session = plan(profile, { day: D(d), maxItems: 4 });
+    // 12 items is a plausible 15-20 minute session — the length the evidence supports. With 5
+    // the 67-word pool takes 14 days to come round once, so nothing promotes for nearly three
+    // weeks and the run shows only its own cold start.
+    const session = plan(profile, { day: D(d), maxItems: 12 });
 
-    // 2. THE HOST WOULD NOW FETCH CONTENT for `session.content.units`, and a passage of at least
-    //    `session.content.minPassageTokens` running tokens. Here the learner just answers.
+    // 2. A real host would now fetch exercises for `session.content.units` and a passage of at
+    //    least `session.content.minPassageTokens` tokens. Here the learner just answers.
     const answered: Evidence[] = session.items.map((item) => {
-      const word = item.unit.split(':').slice(2).join(':');
-      const state = profile.units[item.unit];
-      const practice = state ? state.seen : 0;
-      const chance = Math.min(0.95, (knowsAlready(word) ? 0.7 : 0.3) + 0.06 * practice);
+      const w = word(item.unit);
+      const practice = profile.units[item.unit]?.seen ?? 0;
+      const base = course.familiar.some((f) => pack.key(f) === w) ? 0.75 : 0.3;
       return {
         unit: item.unit,
-        outcome: next() < chance ? 'known' : 'unknown',
+        outcome: next() < Math.min(0.95, base + 0.07 * practice) ? 'known' : 'unknown',
         tested: true,
         day: D(d),
       };
     });
 
-    // 3. Reading the passage mints units for anything not met yet — this is the intake path.
-    const read: Evidence[] = VOCAB.map((word) => ({
-      unit: unitKey('recognise', AR, pack.key(word)),
+    // 3. Reading mints a unit for anything not met yet. This is the intake path — and it never
+    //    promotes anything, because `tested: false`.
+    const read: Evidence[] = lemmas.map((lemma) => ({
+      unit: unitKey('recognise', v, lemma),
       outcome: 'known' as const,
       tested: false,
       day: D(d),
@@ -158,50 +172,58 @@ export function runDemo(days = 30, pack: LanguagePack = arabicPack): void {
 
     profile = record(profile, [...answered, ...read]);
 
-    // 4. HOW HARD IS THE READING NOW? This is what sizes tomorrow's passage.
+    // 4. HOW HARD IS THE READING NOW? This is what would size tomorrow's passage.
     const measured = coverage(profile, pack, {
-      text: PASSAGE,
-      variety: AR,
+      text: course.passage,
+      variety: v,
       direction: 'recognise',
     });
-
-    const pool = Object.keys(profile.units).length;
     const known = measured.kind === 'measured' ? measured.knownTokens : 0;
     const total = measured.kind === 'measured' ? measured.runningTokens : 0;
     const band = measured.kind === 'measured' ? measured.band : measured.kind;
 
-    const drilled = session.items.map((i) => shortKey(i.unit)).join(', ') || '—';
+    // Truncated on a word boundary — a canonical form cut in half is exactly what a reader would
+    // mistake for a normalization bug.
+    const all = session.items.map((i) => word(i.unit));
+    let drilled = '';
+    for (const w of all) {
+      if (drilled.length + w.length + 1 > 44) {
+        drilled += ' …';
+        break;
+      }
+      drilled = drilled.length === 0 ? w : `${drilled} ${w}`;
+    }
+    if (drilled.length === 0) drilled = '—';
     say(
-      `  ${String(d).padStart(3)}  ${drilled.slice(0, 28).padEnd(28)}  ` +
-        `${String(pool).padStart(5)}  ${String(known).padStart(3)}/${String(total).padEnd(3)}  ` +
-        `${bar(known, total)} ${band}`,
+      `  ${String(d).padStart(3)}  ${drilled.slice(0, 44).padEnd(44)}  ` +
+        `${String(known).padStart(3)}/${String(total).padEnd(3)}  ${bar(known, total)} ${band}`,
     );
   }
 
+  const final = coverage(profile, pack, {
+    text: course.passage,
+    variety: v,
+    direction: 'recognise',
+  });
   say('');
-  const final = coverage(profile, pack, { text: PASSAGE, variety: AR, direction: 'recognise' });
   if (final.kind === 'measured') {
     say(`  Ends at ${String(final.knownTokens)}/${String(final.runningTokens)} — ${final.band}.`);
     if (final.unknownLemmas.length > 0) {
-      say(`  Still unknown: ${final.unknownLemmas.join(' ، ')}`);
+      say(`  Still unknown: ${final.unknownLemmas.slice(0, 14).join(' ')}`);
     }
   }
   say('');
-  say('  What to notice — including the parts that look wrong:');
-  say('   · Nothing is known for the first ~12 days. Promotion needs two tested successes, and at');
-  say('     4 drills a day a 33-unit pool takes that long to come round twice. Reading every day');
-  say('     does NOT help: passive exposure never promotes, by design.');
+  say('  What to check, if you speak the language:');
+  say('   · The "drilled" column shows CANONICAL forms, not surface forms. For German that means');
+  say('     umlauts are written out — schön is schoen, groß is gross, über is ueber. That is the');
+  say('     pack normalizing, and it is deliberate: folding ö to o would merge schön with schon.');
+  say('   · Inflected forms collapse onto one word: ist/sind/war all key to sein, so proving one');
+  say('     proves them all. If you see two entries that are obviously the same word, that is a');
+  say('     pack bug — the lemma table is incomplete, not the engine.');
   say(
-    '   · Then it climbs steeply, OVERSHOOTS into too-easy, and settles into the band from above',
+    '   · Nothing is known for the first days. Promotion needs two tested successes, and reading',
   );
-  say(
-    '     as failures demote words. The band is not a destination the engine steers toward yet —',
-  );
-  say('     coverage only measures. A selector that consumes the verdict is not built.');
-  say(
-    '   · "read" and "say" would be separate units for the same word. This run only reads, so the',
-  );
-  say('     production half of every word is untouched — which is the gap the product exists for.');
-  say('   · Nothing graduates: proven words keep coming back. That is where the retention lives.');
+  say('     the passage every single day never promotes anything. Only drills do.');
+  say('   · Nothing graduates. Proven words keep coming back — that is where retention lives.');
   say('');
 }

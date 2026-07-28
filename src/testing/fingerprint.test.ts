@@ -33,6 +33,8 @@ describe('fingerprint', () => {
       'step lowercase',
       'step stripArabicDiacritics',
       'step foldLatinDiacritics',
+      'step foldGermanUmlauts',
+      'de key',
       'codepoints',
       'ar-msa split',
       'fr key',

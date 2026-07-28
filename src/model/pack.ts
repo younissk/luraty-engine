@@ -82,8 +82,17 @@ export type NormalizeStep =
   | 'normalizeArabicAlef'
   /** Collapses ة to ه and ى to ي, another pair writers vary on. */
   | 'normalizeArabicFinals'
-  /** Maps accented Latin letters to their base form: é→e, ç→c, ü→u. */
-  | 'foldLatinDiacritics';
+  /** Maps accented Latin letters to their base form: é→e, ç→c, ü→u. Right for French. */
+  | 'foldLatinDiacritics'
+  /**
+   * German umlauts to their two-letter forms: ä→ae, ö→oe, ü→ue, ß→ss.
+   *
+   * ⚠️ Not a duplicate of `foldLatinDiacritics`. French and German are the same script and want
+   * OPPOSITE answers: `é→e` is right for French, and `ö→o` would merge schön with schon, zählen
+   * with zahlen, drücken with drucken — different words in every case. Two-letter is also German's
+   * own convention when umlauts are unavailable.
+   */
+  | 'foldGermanUmlauts';
 
 export type TokenizeConfig = {
   readonly strategy: 'regex';

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { unitKey, variety, type Day, type UnitKey } from '../model/ids.js';
-import { arabicPack, fixtures, frenchPack } from '../testing/packs.js';
+import { arabicPack, fixtures, frenchPack, germanPack } from '../testing/packs.js';
 
 import { createPack } from './pack.js';
 import { createProfile, unitState } from './profile.js';
@@ -163,5 +163,54 @@ describe('regressions', () => {
     // pack, not a defect in the index — the kind of thing `checkPack` exists to report.
     expect(frenchPack.key('est')).toBe('etre');
     expect(frenchPack.rank('etre')).toBeUndefined();
+  });
+
+  it('keeps German umlaut pairs apart — they are different words', () => {
+    // Was: German used `foldLatinDiacritics`, whose table maps ä→a, ö→o, ü→u. Every pair below
+    // collapsed to ONE key, so a learner who proved `zahlen` (to pay) was credited with `zählen`
+    // (to count) and the engine would then never teach them the other one.
+    //
+    // The fix is a separate `foldGermanUmlauts` step — ä→ae, ö→oe, ü→ue — which is also what German
+    // itself does when umlauts are unavailable. `pack.ts` already argues a generic `stripDiacritics`
+    // is a lie because Arabic and Latin differ; this is the same mistake one level down, where
+    // French and German share a SCRIPT and want opposite answers.
+    const pairs: readonly (readonly [string, string])[] = [
+      ['schön', 'schon'], // beautiful / already
+      ['zählen', 'zahlen'], // to count / to pay
+      ['fördern', 'fordern'], // to promote / to demand
+      ['drücken', 'drucken'], // to press / to print
+      ['schwül', 'schwul'], // humid / gay
+      ['Bär', 'Bar'], // bear / bar
+      ['wählen', 'Wahlen'], // to choose / elections
+    ];
+    for (const [umlaut, plain] of pairs) {
+      expect(germanPack.key(umlaut), `${umlaut} vs ${plain}`).not.toBe(germanPack.key(plain));
+    }
+
+    // And the two-letter forms are the ones German actually uses.
+    expect(germanPack.key('schön')).toBe('schoen');
+    expect(germanPack.key('über')).toBe('ueber');
+    expect(germanPack.key('Straße')).toBe('strasse');
+
+    // French is unaffected: `é→e` is correct there, and `café` really is `cafe`.
+    expect(frenchPack.key('marché')).toBe(frenchPack.key('marche'));
+  });
+
+  it('grades German case and ß the way a German reader would', () => {
+    // ALL-CAPS German writes ß as SS, so these must be the same answer.
+    expect(germanPack.compare('STRASSE', 'Straße')).toBe(1);
+    expect(germanPack.compare('grosse', 'große')).toBe(1);
+    // …but an umlaut dropped entirely is a different word, not a typo to forgive.
+    expect(germanPack.compare('schon', 'schön')).toBe(0);
+  });
+
+  it('refuses a German ge- strip whose remainder is not a word', () => {
+    // The `onlyIfRemainderKnown` guard, in a second language. `gesehen` → `sehen` is right;
+    // `Geld` → `ld` and `gehen` → `hen` are not words and must be refused.
+    expect(germanPack.key('gesehen')).toBe('sehen');
+    expect(germanPack.key('gelesen')).toBe('lesen');
+    expect(germanPack.key('Geld')).toBe('geld');
+    expect(germanPack.key('gehen')).toBe('gehen');
+    expect(germanPack.key('gerade')).toBe('gerade');
   });
 });
