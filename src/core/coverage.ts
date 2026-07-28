@@ -74,16 +74,26 @@ function classify(runningTokens: number, unknownTokens: number): Band {
  */
 export function coverage(profile: Profile, pack: LanguagePack, query: CoverageQuery): Coverage {
   const surfaces = pack.split(query.text);
+  // A Set so a long ignore list costs nothing per token. Raw surfaces, not keys — capitalisation is
+  // the signal, and `key()` has already thrown it away.
+  const ignore = new Set(query.ignore ?? []);
 
   let runningTokens = 0;
   let knownTokens = 0;
   let unkeyableTokens = 0;
+  let ignoredTokens = 0;
   const unknownLemmas: Lemma[] = [];
   // Doubles as the memo for the profile lookup, so a word repeated 40 times costs one lookup. The
   // insertion order of a Map is the first-appearance order the result promises.
   const seen = new Map<Lemma, boolean>();
 
   for (const surface of surfaces) {
+    // Checked BEFORE keying: the caller marked a raw surface, and keying would lowercase it.
+    if (ignore.has(surface)) {
+      ignoredTokens += 1;
+      continue;
+    }
+
     const lemma = pack.key(surface);
 
     // Not a running token. `unitKey(d, v, '')` mints an address `parseUnitKey` rejects, so an empty
@@ -110,7 +120,7 @@ export function coverage(profile: Profile, pack: LanguagePack, query: CoverageQu
   // ⚠️ MUST come before the band test. The integer test is TRUE at (0, 0) — `0 * 20 <= 0` and
   // `0 * 50 >= 0` — so without this guard an empty string reports itself as perfectly pitched
   // material. Every other test in the suite has tokens, so nothing else would ever see it.
-  if (runningTokens === 0) return { kind: 'no-words', unkeyableTokens };
+  if (runningTokens === 0) return { kind: 'no-words', unkeyableTokens, ignoredTokens };
 
   // ⚠️ Also before the band test, and UNCONDITIONALLY — not only when the ratio lands somewhere
   // awkward. At 19 tokens with 10 unknown (47% coverage) the answer is still `'too-short'`.
@@ -122,6 +132,7 @@ export function coverage(profile: Profile, pack: LanguagePack, query: CoverageQu
       knownTokens,
       unknownTokens,
       unkeyableTokens,
+      ignoredTokens,
       unknownLemmas,
       needsMoreTokens: COVERAGE_BAND.minTokens - runningTokens,
     };
@@ -133,6 +144,7 @@ export function coverage(profile: Profile, pack: LanguagePack, query: CoverageQu
     knownTokens,
     unknownTokens,
     unkeyableTokens,
+    ignoredTokens,
     unknownLemmas,
     band: classify(runningTokens, unknownTokens),
   };
