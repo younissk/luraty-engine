@@ -85,6 +85,40 @@ export default tseslint.config(
     },
   },
 
+  // ── One stylistic rule turned off, deliberately ──────────────────────────────────────────────
+  // `consistent-type-definitions` wants `interface` for object shapes. This package wants `type`,
+  // for two reasons that are about the contract rather than taste:
+  //
+  // 1. **Interfaces are open.** Declaration merging means a consumer can reopen `interface Profile`
+  //    and add fields to it from their own code. For a package whose types ARE the public contract,
+  //    a shape that anyone can extend from the outside is a shape we do not fully control. A `type`
+  //    alias cannot be merged into.
+  // 2. **Consistency is not optional here.** `UnitState` is a union, so it MUST be a `type`.
+  //    Following this rule would mean the union is a `type` and its two variants are `interface`s,
+  //    in the same file, describing one idea. Mixed declaration styles in a model layer make the
+  //    reader wonder what the difference signifies. It signifies nothing.
+  //
+  // Note this is only about *declaration style*. Everything else in stylisticTypeChecked stays on.
+  {
+    files: ['src/**/*.ts'],
+    rules: { '@typescript-eslint/consistent-type-definitions': 'off' },
+  },
+
+  // ── Test fixtures may assert non-null ─────────────────────────────────────────────────────────
+  // strictTypeChecked and stylisticTypeChecked genuinely contradict each other here:
+  // `non-nullable-type-assertion-style` rewrites `variety('ar') as Variety` into `variety('ar')!`,
+  // and `no-non-null-assertion` then rejects that. There is no way to satisfy both.
+  //
+  // Resolved in favour of `!` IN TESTS ONLY. A constructor returns `T | undefined` because its
+  // input is untrusted — but a test fixture is a literal the author just typed, so the undefined
+  // case is not a runtime possibility, it is a typo. `!` makes a typo crash immediately and
+  // loudly, which is exactly what you want from a fixture. In `src/` the ban stands: there the
+  // input really is untrusted, and `!` would be a lie.
+  {
+    files: ['src/**/*.test.ts'],
+    rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
+  },
+
   // Config files sit outside tsconfig's `include`, so type-aware rules have no program for them.
   {
     files: ['*.config.js', '*.config.ts', 'commitlint.config.js'],

@@ -52,6 +52,7 @@ const ALLOWED_DEPENDENCIES = [
   '@eslint/js',
   'eslint',
   'eslint-config-prettier',
+  'fast-check',
   'husky',
   'lint-staged',
   'prettier',

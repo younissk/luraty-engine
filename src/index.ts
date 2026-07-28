@@ -6,7 +6,23 @@
 // ⚠️ Hand-written allowlist. Never `export * from './something'`: a wildcard makes every future
 // internal file public by default, and a barrel you cannot narrow is an engine you cannot replace.
 //
-// Nothing is implemented yet. This is scaffolding — see README.md for the shape it grows into.
+// Slice 1 of the engine is here: the state. What the engine believes about a learner, and how
+// evidence changes it. Planning, coverage and persistence are not built yet.
+
+// ── Identifiers ─────────────────────────────────────────────────────────────────────────────────
+export type { Day, Direction, UnitKey, UnitParts, Variety } from './model/ids.js';
+export { DIRECTIONS, day, parseUnitKey, unitKey, variety } from './model/ids.js';
+
+// ── What the engine believes ────────────────────────────────────────────────────────────────────
+export type { Box, Learning, Understood, UnitState } from './model/unit.js';
+export type { Profile } from './model/profile.js';
+
+// ── What changes it ─────────────────────────────────────────────────────────────────────────────
+export type { Evidence, Outcome } from './model/evidence.js';
+
+// ── Operations ──────────────────────────────────────────────────────────────────────────────────
+export { advanceTo, createProfile, hasMet, unitState } from './core/profile.js';
+export { PROMOTE_AFTER_SUCCESSES, record } from './core/record.js';
 
 /**
  * The version of this package's public contract.

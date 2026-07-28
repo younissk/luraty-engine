@@ -1,0 +1,110 @@
+import { assertNever } from '../internal/assert.js';
+import type { Evidence } from '../model/evidence.js';
+import type { Profile } from '../model/profile.js';
+import type { UnitState } from '../model/unit.js';
+
+/**
+ * Folding evidence into a profile.
+ *
+ * This is the only function in the engine that changes what is believed about a learner.
+ * Everything else reads.
+ *
+ * @module
+ */
+
+/**
+ * How many consecutive successful retrievals promote a unit out of the learning box.
+ *
+ * ⚠️ PROVISIONAL. Two is a starting guess, not a finding — the literature is clear that spacing and
+ * cumulative review matter, and notably quiet about the right promotion threshold. It lives here as
+ * a named constant so that a simulation can sweep it, and so that changing it is one visible edit
+ * rather than a magic number buried in a branch.
+ */
+export const PROMOTE_AFTER_SUCCESSES = 2;
+
+/**
+ * Apply evidence to a single unit's state.
+ *
+ * The rules, and why each one is there:
+ *
+ * - **Only a real retrieval can promote.** A passive signal (`tested: false`) counts as an
+ *   encounter and nothing more. This is the rule that stops "did not ask what it means" being
+ *   recorded as "knows it" — see {@link Evidence.tested}.
+ * - **Failure always demotes.** An understood unit that comes back wrong returns to learning with
+ *   its streak cleared. Nothing is permanently known.
+ * - **Nothing ever leaves the pool.** There is no third box and no terminal state; an understood
+ *   unit stays eligible for review forever. Cumulative review — every session drawing from
+ *   everything ever studied rather than the latest batch — is where the large retention gain lives,
+ *   and a graduated state would quietly discard it.
+ */
+function applyOne(state: UnitState, evidence: Evidence): UnitState {
+  const seen = state.seen + 1;
+  const lastSeen = evidence.day;
+
+  switch (state.box) {
+    case 'learning': {
+      if (evidence.outcome === 'unknown') {
+        // Explicitly not known. Reset the run of successes; the encounter still counts.
+        return { box: 'learning', seen, lastSeen, streak: 0 };
+      }
+      if (!evidence.tested) {
+        // Known, but nothing was actually retrieved. Exposure only — no progress toward promotion.
+        return { ...state, seen, lastSeen };
+      }
+      const streak = state.streak + 1;
+      if (streak >= PROMOTE_AFTER_SUCCESSES) {
+        return { box: 'understood', seen, lastSeen, confirmedOn: evidence.day };
+      }
+      return { box: 'learning', seen, lastSeen, streak };
+    }
+
+    case 'understood': {
+      if (evidence.outcome === 'unknown') {
+        // Forgotten, or never really known. Back to learning.
+        return { box: 'learning', seen, lastSeen, streak: 0 };
+      }
+      if (!evidence.tested) {
+        // Seeing it again without being tested is not proof it is still known — record the
+        // encounter but do not refresh the confirmation date, or a unit could stay "recently
+        // proven" forever purely by appearing on screen.
+        return { ...state, seen, lastSeen };
+      }
+      return { box: 'understood', seen, lastSeen, confirmedOn: evidence.day };
+    }
+
+    default:
+      return assertNever(state, 'UnitState');
+  }
+}
+
+/**
+ * Fold evidence into a profile, returning a new profile.
+ *
+ * **This is a fold, and that is a property worth protecting.** Applying evidence one item at a time
+ * must equal applying it in one batch — `record(record(p, [a]), [b])` and `record(p, [a, b])` give
+ * the same profile. A scheduler's genuinely nasty bugs live in the difference between two paths to
+ * the same state, and a property test pins this so that no future optimisation can quietly break
+ * it. Anything that makes a batch behave differently from a sequence (a per-call cap, a
+ * once-per-batch bonus) breaks the law and needs to be a deliberate decision, not a side effect.
+ *
+ * Evidence is `readonly` so this function cannot push into the caller's array, and the caller loses
+ * nothing — a mutable array is assignable to a readonly one.
+ *
+ * The profile's `day` is NOT advanced here. Evidence carries the day it happened, which may be in
+ * the past when a host is syncing an offline queue. Moving the learner through time is `advanceTo`,
+ * on purpose: recording what happened and deciding it is now tomorrow are different acts.
+ */
+export function record(profile: Profile, evidence: readonly Evidence[]): Profile {
+  if (evidence.length === 0) return profile;
+
+  const units: Record<string, UnitState> = { ...profile.units };
+
+  for (const item of evidence) {
+    const current =
+      units[item.unit] ??
+      ({ box: 'learning', seen: 0, lastSeen: item.day, streak: 0 } satisfies UnitState);
+    units[item.unit] = applyOne(current, item);
+  }
+
+  return { ...profile, units };
+}
