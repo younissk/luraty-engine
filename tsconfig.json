@@ -1,0 +1,51 @@
+{
+  // Standalone on purpose. This file must NEVER extend expo/tsconfig.base or any framework base —
+  // those pull in React Native and DOM typings, which would let `import { View } from 'react-native'`
+  // typecheck in here and silently dissolve the entire point of this package.
+  "compilerOptions": {
+    "target": "ES2022",
+
+    // NO "DOM". The engine must not assume a browser exists.
+    // ⚠️ Hermes is the narrowest runtime this ships to, not Node. A green `tsc` only promises things
+    // about the runtime you named here — keep this conservative and add features deliberately.
+    "lib": ["ES2022"],
+
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    // NO ambient types. Not @types/node, not a test runner's globals. Tests import { it } from
+    // 'vitest' explicitly so this stays empty — that is load-bearing, not fussiness.
+    "types": [],
+
+    "strict": true,
+    // A unit the learner has never met is genuinely absent, so `units[k]` being `UnitState | undefined`
+    // is the domain speaking. Do not turn this off to make a call site tidier — write a total accessor.
+    "noUncheckedIndexedAccess": true,
+    // Makes `{ ...DEFAULTS, ...opts }` safe: a caller passing `{ size: undefined }` is caught at the
+    // call site rather than silently blowing past the default.
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    // Bans enums, namespaces, parameter properties and `import =` — every TS-only construct that
+    // needs a runtime transform. Keeps this package erasable to plain JS, which is what lets Metro
+    // and Node consume the source directly.
+    "erasableSyntaxOnly": true,
+
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    // ⚠️ Needed only so the boundary test can read package.json. Do NOT use it to import bulk data
+    // (frequency lists, lemma tables) into the engine — that would make the engine carry assets and
+    // stop it being runtime-agnostic. Data belongs in a language pack, loaded by the host.
+    "resolveJsonModule": true,
+
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

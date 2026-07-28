@@ -1,0 +1,96 @@
+// The engine's boundary, asserted out loud.
+//
+// WHY THIS EXISTS. The primary guard on engine purity is structural: this package has its own
+// package.json and its own node_modules, and neither lists react-native. Module resolution walks
+// only UPWARD, never sideways into a consumer's node_modules, so `import { View } from
+// 'react-native'` in here does not resolve and `npm run typecheck` fails with TS2307. The wrong
+// thing is impossible, not merely discouraged.
+//
+// That guarantee is silent, which makes it fragile in one specific way: it can be destroyed by an
+// edit that looks like tidying. Adding this package to an npm workspace would hoist react-native
+// into a shared node_modules, the engine would resolve it again, and typecheck would go green on
+// exactly the mistake this package exists to prevent. Nothing would fail. Nobody would know.
+//
+// So these tests turn a silent structural property into a loud one.
+
+import { describe, expect, it } from 'vitest';
+
+import pkgJson from '../package.json';
+
+import { ENGINE_API_VERSION } from './index.js';
+
+// TypeScript infers package.json's LITERAL shape, so `pkg.dependencies` is a compile error while
+// the package happens to have no runtime dependencies. Widen once, here, so these tests keep
+// compiling as the manifest grows — the assertions are about what is declared at any given moment,
+// not about which keys exist today.
+const pkg = pkgJson as unknown as {
+  version: string;
+  private?: boolean;
+  exports: Record<string, unknown>;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+};
+
+/** Anything that binds the engine to a UI runtime, a device, or a database. */
+const BANNED = [
+  'react',
+  'react-dom',
+  'react-native',
+  'react-native-web',
+  'expo',
+  '@react-navigation/native',
+  '@react-native-async-storage/async-storage',
+  '@supabase/supabase-js',
+] as const;
+
+const BANNED_PREFIXES = ['expo-', '@expo/', '@react-native/', '@react-native-community/'] as const;
+
+function declaredDependencies(): string[] {
+  return [
+    ...Object.keys(pkg.dependencies ?? {}),
+    ...Object.keys(pkg.devDependencies ?? {}),
+    ...Object.keys(pkg.peerDependencies ?? {}),
+  ];
+}
+
+describe('engine boundary', () => {
+  it('declares no UI-runtime dependency', () => {
+    const offenders = declaredDependencies().filter(
+      (d) =>
+        (BANNED as readonly string[]).includes(d) || BANNED_PREFIXES.some((p) => d.startsWith(p)),
+    );
+    expect(
+      offenders,
+      `package.json declares ${offenders.join(', ')}. The engine must stay runtime-agnostic: it ` +
+        `runs under Hermes, Node and a browser unchanged. If it needs something from the outside ` +
+        `world, take it as an argument and let the host supply it — do not depend on the frontend ` +
+        `from the backend.`,
+    ).toEqual([]);
+  });
+
+  it('does not depend on a database client — persistence is the host\'s job', () => {
+    // Called out separately because it is the tempting one. The engine decides WHAT to ask for;
+    // the host decides HOW it is fetched and stored. An engine that imports a database client can
+    // no longer be tested without one, and "the engine is the backend" collapses into two coupled
+    // halves that must ship together.
+    expect(declaredDependencies()).not.toContain('@supabase/supabase-js');
+  });
+
+  it('is private — this package is never published', () => {
+    expect(pkg.private).toBe(true);
+  });
+
+  it('exposes exactly one public entry point', () => {
+    // One narrow door. A consumer reaching past the barrel into engine internals is how a
+    // replaceable engine quietly becomes an unreplaceable one. Resist adding an "./internal" or
+    // "./testing" subpath for the simulation harness — if the harness cannot work through the
+    // barrel, the barrel is wrong.
+    expect(Object.keys(pkg.exports)).toEqual(['.']);
+  });
+
+  it('keeps ENGINE_API_VERSION honest', () => {
+    // A hand-maintained version string that nothing verifies is a lie with a countdown on it.
+    expect(ENGINE_API_VERSION).toBe(pkg.version);
+  });
+});
