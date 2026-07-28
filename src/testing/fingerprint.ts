@@ -1,5 +1,6 @@
 import { coverage } from '../core/coverage.js';
 import { deserialize, serialize } from '../core/persist.js';
+import { plan } from '../core/plan.js';
 import { createProfile } from '../core/profile.js';
 import { record } from '../core/record.js';
 import { applyStep } from '../internal/text.js';
@@ -222,6 +223,30 @@ export function fingerprint(): string {
     // First-appearance ORDER is part of the contract, so it is pinned rather than the set.
     const unknownLemmas = result.kind === 'no-words' ? [] : result.unknownLemmas;
     lines.push(`coverage-unknown | ${pack.id} | ${show(unknownLemmas.join(','))}`);
+  }
+
+  // ── Planning ────────────────────────────────────────────────────────────────────────────────
+  //
+  // Scheduling is integer arithmetic over sorted keys, so it should be identical everywhere — and
+  // this is what makes that a checked claim rather than an assumption. It goes red the day someone
+  // sorts unit keys with `localeCompare` (ICU-backed, and the ORDER of a session would then depend
+  // on the device's language settings) or introduces a float into the score.
+  if (AR !== undefined) {
+    let scheduled = createProfile('ar', 0 as Day);
+    for (let i = 0; i < 12; i++) {
+      const unit = unitKey(i % 3 === 0 ? 'produce' : 'recognise', AR, CORPUS[i] ?? 'سوق');
+      scheduled = record(scheduled, [
+        { unit, outcome: 'known', tested: true, day: (i + 1) as Day },
+        { unit, outcome: i % 4 === 0 ? 'unknown' : 'known', tested: true, day: (i + 2) as Day },
+      ]);
+    }
+    const session = plan(scheduled, { day: 40 as Day, maxItems: 5 });
+    lines.push(
+      `plan | day 40 | ${session.items.map((i) => `${show(i.unit)}@${String(i.daysWaiting)}`).join('~')}`,
+    );
+    lines.push(
+      `plan-request | day 40 | ${String(session.content.units.length)}/${String(session.content.minPassageTokens)}`,
+    );
   }
 
   // ── Number and JSON behaviour, which have historically differed ──────────────────────────────

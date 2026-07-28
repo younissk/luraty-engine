@@ -1,0 +1,243 @@
+import { describe, expect, it } from 'vitest';
+
+import { COVERAGE_BAND } from '../model/coverage.js';
+import type { Evidence } from '../model/evidence.js';
+import { unitKey, variety, type Day, type UnitKey } from '../model/ids.js';
+import type { Profile } from '../model/profile.js';
+
+import { DEFAULT_REVIEW_GAP_DAYS, OVER_ASK, plan } from './plan.js';
+import { deserialize, serialize } from './persist.js';
+import { createProfile } from './profile.js';
+import { PROMOTE_AFTER_SUCCESSES, record } from './record.js';
+
+/**
+ * Examples for {@link plan}.
+ *
+ * @module
+ */
+
+const V = variety('ar-msa')!;
+const D = (n: number): Day => n as Day;
+const U = (word: string): UnitKey => unitKey('recognise', V, word);
+
+/** A profile where each word was last PROVEN on the given day. */
+function proven(entries: readonly (readonly [string, number])[]): Profile {
+  const evidence: Evidence[] = [];
+  for (const [word, day] of entries) {
+    for (let i = 0; i < PROMOTE_AFTER_SUCCESSES; i++) {
+      evidence.push({ unit: U(word), outcome: 'known', tested: true, day: D(day) });
+    }
+  }
+  return record(createProfile('ar', D(0)), evidence);
+}
+
+const words = (session: ReturnType<typeof plan>): string[] =>
+  session.items.map((i) => i.unit.replace('recognise:ar-msa:', ''));
+
+describe('plan', () => {
+  it('drills the longest-waiting units first', () => {
+    const p = proven([
+      ['fresh', 20],
+      ['stale', 1],
+      ['middling', 10],
+    ]);
+    expect(words(plan(p, { day: D(30), maxItems: 3 }))).toEqual(['stale', 'middling', 'fresh']);
+  });
+
+  it('reports the wait it selected on, so a host can explain itself', () => {
+    // A learner asking "why am I seeing this again?" deserves an answer, and comparison against
+    // your own past is what the evidence says counters the intermediate plateau feeling.
+    const session = plan(proven([['x', 4]]), { day: D(30), maxItems: 5 });
+    expect(session.items[0]?.daysWaiting).toBe(26);
+  });
+
+  it('puts a never-proven unit ahead of everything', () => {
+    // ⚠️ No special case anywhere in plan() produces this — a never-proven unit carries an anchor of
+    // 0, so it reports the full span since the epoch, which is the largest possible wait. If someone
+    // later "fixes" the anchor to the day the unit was met, this is the test that fails.
+    let p = proven([['old', 1]]);
+    p = record(p, [{ unit: U('brandnew'), outcome: 'unknown', tested: false, day: D(29) }]);
+    expect(words(plan(p, { day: D(30), maxItems: 2 }))[0]).toBe('brandnew');
+  });
+
+  it('does not drill a word the learner read today', () => {
+    // The reason `lastProven` exists. Reading refreshes `lastSeen`; scheduling on that would push
+    // every word in today's passage to the BACK of the queue — exactly the words being met now.
+    // Here the opposite must hold: passive exposure changes nothing about when it is due.
+    const before = plan(proven([['x', 1]]), { day: D(30), maxItems: 5 });
+    const p = record(proven([['x', 1]]), [
+      { unit: U('x'), outcome: 'known', tested: false, day: D(30) },
+    ]);
+    expect(plan(p, { day: D(30), maxItems: 5 }).items).toEqual(before.items);
+  });
+
+  it('brings a failed unit straight back', () => {
+    // Failing is not practising. The anchor does not move, so the unit stays at the front — which is
+    // where a word the learner just got wrong belongs. A design that reset the anchor on any
+    // retrieval would send it away for the full gap.
+    let p = proven([['x', 10]]);
+    p = record(p, [{ unit: U('x'), outcome: 'unknown', tested: true, day: D(30) }]);
+    const session = plan(p, { day: D(30), maxItems: 5 });
+    expect(words(session)).toEqual(['x']);
+    expect(session.items[0]?.daysWaiting).toBe(20);
+  });
+
+  // ── The spacing gap ───────────────────────────────────────────────────────────────────────────
+  it('holds a recently proven unit back for the gap, inclusive at the edge', () => {
+    const p = proven([['x', 10]]);
+    const at = (day: number, gap?: number) =>
+      plan(p, { day: D(day), maxItems: 5, ...(gap === undefined ? {} : { reviewGapDays: gap }) })
+        .items.length;
+
+    expect(at(10)).toBe(0); // proven today
+    expect(at(12)).toBe(0); // 2 days — still inside the default gap of 3
+    expect(at(13)).toBe(1); // 3 days — due. The boundary is CLOSED.
+    expect(at(11, 1)).toBe(1); // a host may set its own gap
+    expect(at(10, 0)).toBe(1); // gap 0 means always due
+  });
+
+  it('defaults the gap rather than requiring one', () => {
+    const p = proven([['x', 10]]);
+    const withDefault = plan(p, { day: D(10 + DEFAULT_REVIEW_GAP_DAYS), maxItems: 5 });
+    const explicit = plan(p, {
+      day: D(10 + DEFAULT_REVIEW_GAP_DAYS),
+      maxItems: 5,
+      reviewGapDays: DEFAULT_REVIEW_GAP_DAYS,
+    });
+    expect(withDefault).toEqual(explicit);
+    expect(withDefault.items).toHaveLength(1);
+  });
+
+  // ── Determinism ───────────────────────────────────────────────────────────────────────────────
+  it('gives the same session before and after a save/load cycle', () => {
+    // ⚠️ THE BUG THIS FILE EXISTS FOR, and it is invisible without a round-trip.
+    //
+    // `Object.keys` returns insertion order. A profile built by replaying evidence inserts in
+    // EVIDENCE order; the same profile loaded from storage inserts in SORTED order, because
+    // `serialize` writes its units sorted. So a plan() that read the map's own order would hand a
+    // learner one session before an app restart and a different one after — and both would look
+    // entirely plausible. Verified: the two key orders really do differ.
+    const p = proven([
+      ['zebra', 5],
+      ['apple', 5],
+      ['mango', 5],
+      ['kiwi', 5],
+    ]);
+    const loaded = deserialize(serialize(p));
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+
+    // The premise, asserted so this test cannot pass because the orders happened to match.
+    expect(Object.keys(p.units)).not.toEqual(Object.keys(loaded.value.units));
+
+    const opts = { day: D(30), maxItems: 2 } as const;
+    expect(plan(p, opts)).toEqual(plan(loaded.value, opts));
+  });
+
+  it('breaks ties by key, ascending', () => {
+    // Every unit here has waited exactly the same number of days, so the ENTIRE ordering is the
+    // tiebreak. Without this, a comparator that returns a constant for ties looks correct in every
+    // other test — the pre-sorted key order would mask it.
+    const p = proven([
+      ['zebra', 5],
+      ['apple', 5],
+      ['mango', 5],
+      ['kiwi', 5],
+    ]);
+    expect(words(plan(p, { day: D(30), maxItems: 4 }))).toEqual([
+      'apple',
+      'kiwi',
+      'mango',
+      'zebra',
+    ]);
+  });
+
+  it('is a pure function of its inputs', () => {
+    const p = proven([
+      ['a', 1],
+      ['b', 2],
+    ]);
+    const opts = { day: D(30), maxItems: 2 } as const;
+    expect(plan(p, opts)).toEqual(plan(p, opts));
+  });
+
+  // ── Content request ───────────────────────────────────────────────────────────────────────────
+  it('carries the coverage floor outward', () => {
+    // ⚠️ The engine cannot fetch content. If nobody tells the host how long a passage must be, it
+    // supplies nine-word sentences forever and the 95–98% band is unsatisfiable by construction —
+    // silently, because every short measurement comes back "too short to classify".
+    expect(plan(proven([]), { day: D(1), maxItems: 5 }).content.minPassageTokens).toBe(
+      COVERAGE_BAND.minTokens,
+    );
+  });
+
+  it('names more units than the session uses', () => {
+    // A host without an exercise for one word should lose that word, not shorten the session.
+    const p = proven(Array.from({ length: 30 }, (_, i) => [`w${String(i)}`, 1] as const));
+    const session = plan(p, { day: D(30), maxItems: 4 });
+    expect(session.items).toHaveLength(4);
+    expect(session.content.units).toHaveLength(4 * OVER_ASK);
+    // …and the spares are the next-best ones, in the same order.
+    expect(session.content.units.slice(0, 4)).toEqual(session.items.map((i) => i.unit));
+  });
+
+  // ── Degenerate inputs ─────────────────────────────────────────────────────────────────────────
+  it('handles a learner who has met nothing', () => {
+    const session = plan(createProfile('ar', D(0)), { day: D(1), maxItems: 10 });
+    expect(session.items).toEqual([]);
+    expect(session.content.units).toEqual([]);
+    // The content request still carries the floor — a beginner reads too.
+    expect(session.content.minPassageTokens).toBe(COVERAGE_BAND.minTokens);
+  });
+
+  it('handles nothing being due', () => {
+    expect(plan(proven([['x', 30]]), { day: D(30), maxItems: 10 }).items).toEqual([]);
+  });
+
+  it('clamps a nonsensical maxItems instead of throwing', () => {
+    // `options` comes from the host's own code, not from storage, so it is not a trust boundary —
+    // but crashing an app over a bad number is never the right answer either. Matches `advanceTo`'s
+    // refusal to throw on a backwards clock.
+    const p = proven([
+      ['a', 1],
+      ['b', 1],
+      ['c', 1],
+    ]);
+    const at = (n: number) => plan(p, { day: D(30), maxItems: n }).items.length;
+    expect(at(0)).toBe(0);
+    expect(at(-5)).toBe(0);
+    expect(at(2.7)).toBe(2);
+    expect(at(Number.NaN)).toBe(0);
+    expect(at(1e9)).toBe(3);
+  });
+
+  it('clamps a nonsensical gap too', () => {
+    const p = proven([['x', 10]]);
+    expect(plan(p, { day: D(11), maxItems: 5, reviewGapDays: -3 }).items).toHaveLength(1);
+    expect(plan(p, { day: D(11), maxItems: 5, reviewGapDays: Number.NaN }).items).toHaveLength(0);
+  });
+
+  it('survives a day behind the profile without inventing negative waits', () => {
+    // A device clock that jumps backwards, or a host planning for a day it has already passed. A
+    // negative wait would sort a unit as if it were fresher than one proven today.
+    const session = plan(proven([['x', 20]]), { day: D(5), maxItems: 5, reviewGapDays: 0 });
+    expect(session.items[0]?.daysWaiting).toBe(0);
+  });
+
+  it('handles a very long absence without special-casing it', () => {
+    const session = plan(proven([['x', 1]]), { day: D(401), maxItems: 5 });
+    expect(session.items[0]?.daysWaiting).toBe(400);
+  });
+
+  it('separates directions and varieties, because they are separate knowledge', () => {
+    const other = variety('ar-levantine')!;
+    let p = createProfile('ar', D(0));
+    p = record(p, [
+      { unit: unitKey('recognise', V, 'سوق'), outcome: 'known', tested: true, day: D(1) },
+      { unit: unitKey('produce', V, 'سوق'), outcome: 'known', tested: true, day: D(1) },
+      { unit: unitKey('recognise', other, 'سوق'), outcome: 'known', tested: true, day: D(1) },
+    ]);
+    // Three units for one word, and the scheduler treats them as three.
+    expect(plan(p, { day: D(30), maxItems: 10 }).items).toHaveLength(3);
+  });
+});

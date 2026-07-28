@@ -24,6 +24,16 @@ import type { UnitState } from '../model/unit.js';
 export const PROMOTE_AFTER_SUCCESSES = 2;
 
 /**
+ * The `lastProven` of a unit that has never been proven.
+ *
+ * Zero rather than `undefined`, so the field is total and `later()` has an identity element — which
+ * is what keeps the fold independent of the order evidence arrives in. It also reads correctly in
+ * the scheduler with no special case: `day - 0` is the largest possible wait, so a never-proven unit
+ * sorts to the front, which is exactly where it belongs.
+ */
+const NEVER = 0 as Day;
+
+/**
  * Apply evidence to a single unit's state.
  *
  * The rules, and why each one is there:
@@ -41,6 +51,16 @@ export const PROMOTE_AFTER_SUCCESSES = 2;
 /** Later of two days. Time only ever moves forward for a unit — see {@link applyOne}. */
 function later(a: Day, b: Day): Day {
   return a > b ? a : b;
+}
+
+/**
+ * Did this evidence actually prove the unit?
+ *
+ * The conjunction is the point: a passive signal proves nothing (see {@link Evidence.tested}), and
+ * a failed retrieval proves the opposite. Only this advances a unit's "last proven" anchor.
+ */
+function proves(evidence: Evidence): boolean {
+  return evidence.tested && evidence.outcome === 'known';
 }
 
 function applyOne(state: UnitState, evidence: Evidence): UnitState {
@@ -61,9 +81,17 @@ function applyOne(state: UnitState, evidence: Evidence): UnitState {
 
   switch (state.box) {
     case 'learning': {
+      // Monotonic like `lastSeen`, and for the same sync reason — but folded only over evidence
+      // that actually PROVED something, so passive exposure and failures leave it alone.
+      const lastProven = proves(evidence)
+        ? later(state.lastProven, evidence.day)
+        : state.lastProven;
+
       if (evidence.outcome === 'unknown') {
-        // Explicitly not known. Reset the run of successes; the encounter still counts.
-        return { box: 'learning', seen, lastSeen, streak: 0 };
+        // Explicitly not known. Reset the run of successes; the encounter still counts. The proven
+        // anchor does not move, so this unit stays at the front of the drill queue — which is where
+        // a word the learner just got wrong belongs.
+        return { box: 'learning', seen, lastSeen, streak: 0, lastProven };
       }
       if (!evidence.tested) {
         // Known, but nothing was actually retrieved. Exposure only — no progress toward promotion.
@@ -71,16 +99,36 @@ function applyOne(state: UnitState, evidence: Evidence): UnitState {
       }
       const streak = state.streak + 1;
       if (streak >= PROMOTE_AFTER_SUCCESSES) {
-        // A fresh promotion, so the evidence's own day is the confirmation date.
-        return { box: 'understood', seen, lastSeen, confirmedOn: evidence.day };
+        // ⚠️ `later(...)`, not `evidence.day`, and for the same offline-sync reason as `lastSeen`.
+        //
+        // This used to take the promoting evidence's own day, which is wrong whenever a queue is
+        // replayed out of order: a day-3 success arriving after a day-40 one triggers the promotion
+        // and stamped `confirmedOn: 3`, so a unit proven on day 40 reported itself last proven 37
+        // days earlier. The unit then looked overdue forever and the engine drilled a word the
+        // learner had just got right.
+        //
+        // It was invisible before `lastProven` existed, because nothing else in the state knew that
+        // day 40 had happened. Now the answer is right there, and taking the later of the two makes
+        // the result independent of arrival order — the property a sync queue actually needs.
+        return {
+          box: 'understood',
+          seen,
+          lastSeen,
+          confirmedOn: later(state.lastProven, evidence.day),
+        };
       }
-      return { box: 'learning', seen, lastSeen, streak };
+      return { box: 'learning', seen, lastSeen, streak, lastProven };
     }
 
     case 'understood': {
       if (evidence.outcome === 'unknown') {
         // Forgotten, or never really known. Back to learning.
-        return { box: 'learning', seen, lastSeen, streak: 0 };
+        //
+        // `lastProven` inherits `confirmedOn`, because that IS the day this unit was last proven and
+        // nothing about failing today changes when that was. Seeding it to `evidence.day` instead
+        // would record a failure as a proof and park the unit at the back of the queue precisely
+        // when it needs drilling; seeding it to 0 would discard a real fact.
+        return { box: 'learning', seen, lastSeen, streak: 0, lastProven: state.confirmedOn };
       }
       if (!evidence.tested) {
         // Seeing it again without being tested is not proof it is still known — record the
@@ -128,7 +176,18 @@ export function record(profile: Profile, evidence: readonly Evidence[]): Profile
   for (const item of evidence) {
     const current =
       units[item.unit] ??
-      ({ box: 'learning', seen: 0, lastSeen: item.day, streak: 0 } satisfies UnitState);
+      // ⚠️ `lastProven: 0` — never proven — and NOT `item.day`. Zero is the identity element of the
+      // `later()` fold, which is what makes the final value independent of the order evidence
+      // arrives in. Seeding it to the minting item's day would make it depend on which item record
+      // happened to meet first, so an offline queue replayed in a different order would produce a
+      // different profile — breaking the fold law this function's contract rests on.
+      ({
+        box: 'learning',
+        seen: 0,
+        lastSeen: item.day,
+        streak: 0,
+        lastProven: NEVER,
+      } satisfies UnitState);
     units[item.unit] = applyOne(current, item);
   }
 

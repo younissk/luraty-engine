@@ -163,8 +163,10 @@ describe('the public surface', () => {
     // it should be a visible line in a diff rather than a side effect of an import.
     expect(Object.keys(engine).sort()).toEqual([
       'COVERAGE_BAND',
+      'DEFAULT_REVIEW_GAP_DAYS',
       'DIRECTIONS',
       'ENGINE_API_VERSION',
+      'OVER_ASK',
       'PROFILE_SCHEMA_VERSION',
       'PROMOTE_AFTER_SUCCESSES',
       'advanceTo',
@@ -176,6 +178,7 @@ describe('the public surface', () => {
       'deserialize',
       'hasMet',
       'parseUnitKey',
+      'plan',
       'record',
       'serialize',
       'unitKey',

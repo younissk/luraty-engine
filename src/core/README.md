@@ -3,7 +3,7 @@
 The decisions live here. Everything is value-in, value-out:
 
 ```
-plan(profile, pack, options)      → a session, plus a description of the content it needs
+plan(profile, options)            → a session, plus a description of the content it needs
 record(profile, evidence[])       → a new profile
 coverage(profile, pack, query)    → how much of this text the learner knows
 serialize(profile) / deserialize(text)
@@ -14,6 +14,13 @@ serialize(profile) / deserialize(text)
 else's tokens would create a second definition of "running token" that the engine cannot police.
 It also returns **no band verdict at all** below 20 running tokens, because below that length the
 95–98% band has no representable point — the only reachable coverages are 100% and at most 94.7%.
+
+`plan` takes **no language pack and no seed**, and both are findings rather than omissions
+(ADR-0005). Nothing on the four-function pack contract is reachable from a scheduler that has no
+text and no answer to grade — so threading a pack through would be a lie about what the function
+depends on, and dropping it means a pack bug can never be mistaken for a scheduling bug. A seed is
+unnecessary because the selection score is total: serving a unit resets its anchor while every
+unserved unit gains a day, so no tie survives that the key tiebreak cannot settle.
 
 ## The rules that make this folder work
 

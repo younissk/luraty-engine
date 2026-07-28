@@ -5,9 +5,9 @@ import {
   PROFILE_SCHEMA_VERSION,
   type Decoded,
   type DecodeError,
-  type WireEntryV1,
+  type WireEntryV2,
   type WireProfile,
-  type WireUnitV1,
+  type WireUnitV2,
 } from '../model/wire.js';
 import { assertNever } from '../internal/assert.js';
 
@@ -24,7 +24,7 @@ import { assertNever } from '../internal/assert.js';
 
 // ── Encoding ────────────────────────────────────────────────────────────────────────────────────
 
-function toWire(state: UnitState): WireUnitV1 {
+function toWire(state: UnitState): WireUnitV2 {
   switch (state.box) {
     case 'learning':
       return {
@@ -32,6 +32,7 @@ function toWire(state: UnitState): WireUnitV1 {
         seen: state.seen,
         lastSeen: state.lastSeen,
         streak: state.streak,
+        lastProven: state.lastProven,
       };
     case 'understood':
       return {
@@ -60,8 +61,8 @@ function toWire(state: UnitState): WireUnitV1 {
  * bug this is meant to prevent.
  */
 export function serialize(profile: Profile): string {
-  const units: WireEntryV1[] = Object.entries(profile.units)
-    .map(([key, state]): WireEntryV1 => [key, toWire(state)])
+  const units: WireEntryV2[] = Object.entries(profile.units)
+    .map(([key, state]): WireEntryV2 => [key, toWire(state)])
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 
   const wire: WireProfile = {
@@ -104,7 +105,11 @@ function parseUnit(v: unknown): UnitState | undefined {
 
   if (v.box === 'learning') {
     if (!isWholeNumber(v.streak)) return undefined;
-    return { box: 'learning', seen, lastSeen, streak: v.streak };
+    // `lastProven` arrives from the v1 migration when it was not in the stored bytes, so by the
+    // time this runs it is always present. Checked anyway: this is a trust boundary, and "the
+    // migration must have run" is exactly the assumption that is false the day one does not.
+    if (!isWholeNumber(v.lastProven)) return undefined;
+    return { box: 'learning', seen, lastSeen, streak: v.streak, lastProven: v.lastProven as Day };
   }
   if (v.box === 'understood') {
     if (!isWholeNumber(v.confirmedOn)) return undefined;
@@ -124,7 +129,41 @@ function parseUnit(v: unknown): UnitState | undefined {
  * never run on realistic old data is not a migration, it is a hope.
  */
 const MIGRATIONS: Readonly<Record<number, (input: unknown) => unknown>> = {
-  // 1: (v1) => ({ ...toV2(v1) }),
+  /**
+   * v1 → v2: add `lastProven` to every learning unit.
+   *
+   * ⚠️ **Migrated to 0 (never proven), NOT to `lastSeen`, and the choice matters.**
+   *
+   * `lastSeen` is the obvious mapping and it imports exactly the contamination `lastProven` exists
+   * to remove: v1's `lastSeen` is refreshed by passive exposure, so a learner who has been reading
+   * daily would migrate with every learning unit stamped as recently *proven*. Their weakest,
+   * most-encountered words would go to the back of the drill queue — and because the fold is
+   * monotonic, the bad value can never be corrected downward. It would be permanent.
+   *
+   * Zero errs the other way: everything looks maximally overdue, the learner gets one flood of
+   * drills, and the aging score resolves it within a rotation of the pool. Over-drilling once is
+   * recoverable; under-drilling forever is not.
+   *
+   * Defensive throughout because the input is data written by code that no longer exists. Anything
+   * unrecognisable is passed through untouched, so `parseUnit` produces the `malformed` error with
+   * a unit key in it rather than this function throwing an unnamed exception at app launch.
+   */
+  1: (input: unknown): unknown => {
+    if (!isRecord(input) || !Array.isArray(input.units)) return input;
+    // `Array.isArray` narrows to `any[]`, which would let anything through untyped from here on.
+    // Widening to `unknown[]` puts the checks back where they belong: on each entry.
+    const entries: unknown[] = input.units;
+    return {
+      ...input,
+      v: 2,
+      units: entries.map((entry: unknown): unknown => {
+        if (!Array.isArray(entry) || entry.length !== 2) return entry;
+        const [key, state] = entry as [unknown, unknown];
+        if (!isRecord(state) || state.box !== 'learning') return entry;
+        return [key, { ...state, lastProven: 0 }];
+      }),
+    };
+  },
 };
 
 /**

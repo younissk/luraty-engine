@@ -20,7 +20,15 @@ const fresh = () => createProfile('ar', D(0));
 describe('record', () => {
   it('starts a unit in the learning box when the learner does not know it', () => {
     const p = record(fresh(), [ev(suuq, 'unknown', false, 1)]);
-    expect(unitState(p, suuq)).toEqual({ box: 'learning', seen: 1, lastSeen: 1, streak: 0 });
+    expect(unitState(p, suuq)).toEqual({
+      box: 'learning',
+      seen: 1,
+      lastSeen: 1,
+      streak: 0,
+      // Failing is not proving. The anchor stays at NEVER, so the scheduler keeps this unit at
+      // the front of the queue rather than treating the failure as practice.
+      lastProven: 0,
+    });
   });
 
   it('does NOT promote on a passive signal, however many times it is seen', () => {
@@ -92,7 +100,13 @@ describe('record', () => {
   it('treats an unmet unit as learning-with-nothing-seen, without inventing an entry', () => {
     const p = fresh();
     expect(hasMet(p, suuq)).toBe(false);
-    expect(unitState(p, suuq)).toEqual({ box: 'learning', seen: 0, lastSeen: 0, streak: 0 });
+    expect(unitState(p, suuq)).toEqual({
+      box: 'learning',
+      seen: 0,
+      lastSeen: 0,
+      streak: 0,
+      lastProven: 0,
+    });
   });
 
   it('does not mutate the profile it was given', () => {
@@ -126,5 +140,88 @@ describe('advanceTo', () => {
     // corrupt history, and must certainly not crash the app.
     const p = advanceTo(fresh(), D(10));
     expect(advanceTo(p, D(3))).toBe(p);
+  });
+});
+
+describe('lastProven — the scheduler anchor', () => {
+  /** `lastProven`, or `undefined` if the unit is understood (which carries `confirmedOn` instead). */
+  function provenOn(p: ReturnType<typeof fresh>, key = suuq): number | undefined {
+    const s = unitState(p, key);
+    return s.box === 'learning' ? s.lastProven : undefined;
+  }
+
+  it('does not move on passive exposure', () => {
+    // The whole reason the field exists. `lastSeen` is refreshed by reading a word and not asking
+    // what it means; scheduling on that would push every word in today's reading to the back of the
+    // drill queue — exactly the words the learner is currently meeting.
+    const p = record(fresh(), [
+      { unit: suuq, outcome: 'known', tested: false, day: D(9) },
+      { unit: suuq, outcome: 'known', tested: false, day: D(10) },
+    ]);
+    const s = unitState(p, suuq);
+    expect(s.box).toBe('learning');
+    if (s.box !== 'learning') return;
+    expect(s.lastSeen).toBe(10);
+    expect(s.lastProven).toBe(0);
+  });
+
+  it('does not move on a failed retrieval', () => {
+    // A learner who just got this wrong should meet it again soon, not be told they have practised
+    // it. Parking the anchor makes that fall out of the arithmetic instead of needing a rule.
+    const p = record(fresh(), [
+      { unit: suuq, outcome: 'known', tested: true, day: D(3) },
+      { unit: suuq, outcome: 'unknown', tested: true, day: D(20) },
+    ]);
+    expect(provenOn(p)).toBe(3);
+  });
+
+  it('moves only on a successful retrieval', () => {
+    expect(
+      provenOn(record(fresh(), [{ unit: suuq, outcome: 'known', tested: true, day: D(7) }])),
+    ).toBe(7);
+  });
+
+  it('is independent of the order evidence arrives in', () => {
+    // ⚠️ THE PROPERTY THAT DECIDED THE SEED VALUE. A host syncing an offline queue replays evidence
+    // out of order. Seeding `lastProven` from the minting item's day would make the result depend on
+    // which item `record` happened to meet first — so the same three facts would produce two
+    // different profiles, and the fold law this function's contract rests on would be false.
+    //
+    // Zero is the identity element of the `later()` fold, which is what makes max commutative here.
+    const forwards = [
+      { unit: suuq, outcome: 'known' as const, tested: false, day: D(50) },
+      { unit: suuq, outcome: 'known' as const, tested: true, day: D(3) },
+    ];
+    const backwards = [forwards[1]!, forwards[0]!];
+
+    expect(provenOn(record(fresh(), forwards))).toBe(3);
+    expect(provenOn(record(fresh(), backwards))).toBe(3);
+  });
+
+  it('survives demotion carrying the day it was actually proven', () => {
+    // Demoted from understood, the unit keeps the real answer to "when was this last proven?".
+    // Stamping today would record a FAILURE as proof and park the unit at the back of the queue
+    // precisely when it needs drilling; zeroing it would discard a fact the engine had.
+    const p = record(fresh(), [
+      { unit: suuq, outcome: 'known', tested: true, day: D(4) },
+      { unit: suuq, outcome: 'known', tested: true, day: D(6) },
+      { unit: suuq, outcome: 'unknown', tested: true, day: D(30) },
+    ]);
+    const s = unitState(p, suuq);
+    expect(s.box).toBe('learning');
+    if (s.box !== 'learning') return;
+    expect(s.lastProven).toBe(6);
+  });
+
+  it('is monotonic, so a late-arriving old success cannot rewind it', () => {
+    const p = record(fresh(), [
+      { unit: suuq, outcome: 'known', tested: true, day: D(40) },
+      { unit: suuq, outcome: 'known', tested: true, day: D(3) },
+    ]);
+    // Promoted, so the anchor is confirmedOn — and it must be 40, not 3.
+    const s = unitState(p, suuq);
+    expect(s.box).toBe('understood');
+    if (s.box !== 'understood') return;
+    expect(s.confirmedOn).toBe(40);
   });
 });

@@ -34,6 +34,27 @@ export type Learning = {
    * engine recording "knows it" for a word the learner merely skimmed past.
    */
   readonly streak: number;
+
+  /**
+   * The day this unit was last **successfully retrieved**, or `0` if it never has been.
+   *
+   * ⚠️ THE SCHEDULER READS THIS AND NOT {@link Learning.lastSeen}, and the difference is the whole
+   * reason the field exists. `lastSeen` is refreshed by passive exposure — reading a word and not
+   * asking what it means moves it. So scheduling on `lastSeen` would push every word in today's
+   * reading to the back of the drill queue, which is exactly backwards: those are the words the
+   * learner is currently meeting.
+   *
+   * It is the direct counterpart of {@link Understood.confirmedOn}, so both variants answer the same
+   * question — "when was this last proven?" — and a scheduler needs no special case for the box.
+   *
+   * **A failure does not move it.** Only `tested: true` with `outcome: 'known'` does. A learner who
+   * just got this wrong should meet it again soon, not be told they have practised it; parking the
+   * anchor is what makes that fall out of the arithmetic rather than needing a rule.
+   *
+   * `0` for never-proven is the identity element of the `later()` fold, which is what keeps the
+   * value independent of the order evidence arrives in — the property an offline sync queue needs.
+   */
+  readonly lastProven: Day;
 };
 
 /**

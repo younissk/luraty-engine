@@ -40,7 +40,16 @@ export function advanceTo(profile: Profile, day: Day): Profile {
  * do not know a word until something says otherwise.
  */
 export function unitState(profile: Profile, key: UnitKey): UnitState {
-  return profile.units[key] ?? { box: 'learning', seen: 0, lastSeen: profile.day, streak: 0 };
+  return (
+    profile.units[key] ?? {
+      box: 'learning',
+      seen: 0,
+      lastSeen: profile.day,
+      streak: 0,
+      // Never proven, which is the honest reading of a unit nobody has ever met.
+      lastProven: 0 as Day,
+    }
+  );
 }
 
 /** Whether the learner has ever met this unit. Distinct from "knows it". */

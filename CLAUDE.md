@@ -5,8 +5,8 @@ frontend.** It holds the decisions — what to teach, when, how an answer is jud
 next. It must run unchanged under Hermes (React Native), Node, and a browser.
 
 **Built so far:** the learner state and the evidence fold (`record`), persistence
-(`serialize`/`deserialize`), language packs (`createPack`/`checkPack`), and coverage. **`plan()` —
-the scheduler — is not built.** Read this file before adding the next piece.
+(`serialize`/`deserialize`), language packs (`createPack`/`checkPack`), coverage, and the scheduler
+(`plan`). Read this file before adding the next piece.
 
 ## The one rule
 
@@ -177,8 +177,14 @@ npm run mutate     # minutes, not seconds — an audit, never a gate
 Deliberately **not** in `npm run check`, and with no score threshold: a hard number is one that
 eventually gets lowered so a commit can land. Read the survivors, fix what matters, move on.
 
-Score today **87.79%** — `coverage.ts` 97 (zero survivors), `text.ts` 96, `ids.ts` 95, `record.ts`
-93, `persist.ts` 83, `checkPack.ts` 79, `pack.ts` 78.
+Score today **87.88%** — `coverage.ts` 97 (zero survivors), `text.ts` 96, `record.ts` 96, `ids.ts`
+95, `profile.ts` 92, `plan.ts` 89, `persist.ts` 83, `checkPack.ts` 79, `pack.ts` 78.
+
+`plan.ts` is the worked example of what this lane is for. It scored **67.86%** first time, and 12 of
+its 15 survivors sat on one redundant pre-sort of `Object.keys` — redundant because the final
+comparator was already total, and actively harmful because the two orderings agreed, which made the
+comparator's tiebreak untestable. Deleting four lines took it to 88.89 and turned an unpinned
+guarantee into a pinned one. No test was failing before.
 
 ### The cross-runtime lane
 

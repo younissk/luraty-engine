@@ -19,15 +19,37 @@
  * Not the same as the package version — the API can change many times without the stored bytes
  * changing at all, and vice versa.
  */
-export const PROFILE_SCHEMA_VERSION = 1;
+export const PROFILE_SCHEMA_VERSION = 2;
 
-/** A unit's state, as stored. */
+/** A unit's state, as stored by schema v1. Frozen — this shape has a copy in storage. */
 export type WireUnitV1 =
   | {
       readonly box: 'learning';
       readonly seen: number;
       readonly lastSeen: number;
       readonly streak: number;
+    }
+  | {
+      readonly box: 'understood';
+      readonly seen: number;
+      readonly lastSeen: number;
+      readonly confirmedOn: number;
+    };
+
+/**
+ * A unit's state, as stored by schema v2.
+ *
+ * The only change from v1 is `lastProven` on the learning variant — the day a unit was last
+ * successfully retrieved, which the scheduler needs and `lastSeen` cannot supply because passive
+ * exposure refreshes it. See {@link Learning.lastProven}.
+ */
+export type WireUnitV2 =
+  | {
+      readonly box: 'learning';
+      readonly seen: number;
+      readonly lastSeen: number;
+      readonly streak: number;
+      readonly lastProven: number;
     }
   | {
       readonly box: 'understood';
@@ -55,6 +77,7 @@ export type WireUnitV1 =
  * behaviour we are hoping stays true.
  */
 export type WireEntryV1 = readonly [key: string, unit: WireUnitV1];
+export type WireEntryV2 = readonly [key: string, unit: WireUnitV2];
 
 export type WireProfileV1 = {
   readonly v: 1;
@@ -64,8 +87,16 @@ export type WireProfileV1 = {
   readonly units: readonly WireEntryV1[];
 };
 
-/** The current wire shape. Rename this alias when a v2 arrives; leave `WireProfileV1` untouched. */
-export type WireProfile = WireProfileV1;
+export type WireProfileV2 = {
+  readonly v: 2;
+  readonly language: string;
+  readonly day: number;
+  /** Sorted by key, always. See {@link WireEntryV1}. */
+  readonly units: readonly WireEntryV2[];
+};
+
+/** The current wire shape. Point this at the newest version; leave the older ones untouched. */
+export type WireProfile = WireProfileV2;
 
 /**
  * Why decoding returns a value instead of throwing.

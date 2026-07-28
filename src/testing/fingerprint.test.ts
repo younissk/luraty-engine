@@ -40,6 +40,8 @@ describe('fingerprint', () => {
       'unitKey',
       'serialize | 20 days',
       'deserialize-bad',
+      'plan | day 40',
+      'plan-request',
       'json-order',
       'imul',
     ]) {

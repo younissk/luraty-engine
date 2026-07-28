@@ -7,7 +7,7 @@
 // internal file public by default, and a barrel you cannot narrow is an engine you cannot replace.
 //
 // Built so far: the state (what the engine believes about a learner and how evidence changes it),
-// persistence, language packs, and coverage. Planning — `plan()` — is not built yet.
+// persistence, language packs, coverage, and planning.
 
 // ── Identifiers ─────────────────────────────────────────────────────────────────────────────────
 export type { Day, Direction, UnitKey, UnitParts, Variety } from './model/ids.js';
@@ -55,6 +55,13 @@ export type { Band, Coverage, CoverageQuery } from './model/coverage.js';
 export { COVERAGE_BAND } from './model/coverage.js';
 export { coverage } from './core/coverage.js';
 
+// ── Planning ────────────────────────────────────────────────────────────────────────────────────
+// What to do next, plus a DESCRIPTION of the content it needs — the engine cannot fetch anything,
+// so the host reads the request and goes and gets it. That is what makes a scheduler testable with
+// no database, and why there is no content port here.
+export type { ContentRequest, PlanOptions, Session, SessionItem } from './model/session.js';
+export { DEFAULT_REVIEW_GAP_DAYS, OVER_ASK, plan } from './core/plan.js';
+
 // ── Operations ──────────────────────────────────────────────────────────────────────────────────
 export { advanceTo, createProfile, hasMet, unitState } from './core/profile.js';
 export { PROMOTE_AFTER_SUCCESSES, record } from './core/record.js';
@@ -66,4 +73,4 @@ export { deserialize, serialize } from './core/persist.js';
  * Pinned to `package.json` by `src/boundary.test.ts`, so it cannot drift into a comfortable lie.
  * Bump it in the same commit as any breaking change to the exports above.
  */
-export const ENGINE_API_VERSION = '0.2.0';
+export const ENGINE_API_VERSION = '0.3.0';
