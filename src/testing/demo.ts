@@ -7,6 +7,7 @@ import { unitKey, variety, type Day, type UnitKey } from '../model/ids.js';
 import type { LanguagePack, Lemma } from '../model/pack.js';
 import type { Profile } from '../model/profile.js';
 
+import { beginner, classroomLearner, heritageSpeaker } from './learners.js';
 import { arabicPack, germanPack } from './packs.js';
 
 /**
@@ -115,9 +116,25 @@ function say(line: string): void {
 export type PackOverride = {
   readonly pack: LanguagePack;
   readonly passage?: string;
+  /** The pack's own frequency list, needed to build a learner who already knows some of it. */
+  readonly frequency?: string;
 };
 
-export function runDemo(days = 30, language = 'de', override?: PackOverride): void {
+/**
+ * Who is sitting down to use this.
+ *
+ * `beginner` is not just one option among three — it is the ONLY state a real learner can be in
+ * today, because placement is not built. The other two are fabricated histories, which is fine for
+ * a simulation and would be a lie in the product.
+ */
+export type Who = 'beginner' | 'heritage' | 'classroom';
+
+export function runDemo(
+  days = 30,
+  language = 'de',
+  override?: PackOverride,
+  who: Who = 'beginner',
+): void {
   const base = COURSES[language] ?? COURSES.de;
   if (base === undefined) return;
   const course: Course =
@@ -129,7 +146,20 @@ export function runDemo(days = 30, language = 'de', override?: PackOverride): vo
 
   const pack = course.pack;
   const next = rng(42);
-  let profile: Profile = createProfile(language, D(0));
+
+  // Day 0 for a beginner; a back-dated history for anyone else, so their words are already due.
+  const startDay = who === 'beginner' ? D(0) : D(200);
+  const frequency = override?.frequency;
+  const archetypeOpts = { variety: v, day: startDay, seed: 42, frequency: frequency ?? '' };
+  let profile: Profile =
+    who === 'beginner' || frequency === undefined
+      ? createProfile(language, startDay)
+      : who === 'heritage'
+        ? heritageSpeaker(course.pack, archetypeOpts)
+        : classroomLearner(course.pack, { ...archetypeOpts, words: 120 });
+  if (who !== 'beginner' && frequency === undefined) {
+    profile = beginner(course.pack, archetypeOpts);
+  }
 
   // The vocabulary IS the passage — every distinct lemma the pack finds in it. Nothing is
   // hand-listed, so the token distribution is the language's own.
@@ -144,7 +174,13 @@ export function runDemo(days = 30, language = 'de', override?: PackOverride): vo
   const tokens = pack.split(course.passage).length;
 
   say('');
-  say(`  ${pack.id} — a learner, ${String(days)} days.`);
+  const whoLabel =
+    who === 'heritage'
+      ? 'a heritage speaker'
+      : who === 'classroom'
+        ? 'a classroom learner'
+        : 'a beginner (the only state placement-free code can produce)';
+  say(`  ${pack.id} — ${whoLabel}, ${String(days)} days.`);
   say(`  ${String(tokens)} running tokens, ${String(lemmas.length)} distinct words.`);
   say('  Seeded: same run every time, on every runtime.');
   say('');
@@ -153,7 +189,7 @@ export function runDemo(days = 30, language = 'de', override?: PackOverride): vo
   say('  day  drilled                                        known    coverage');
   say('  ───  ────────────────────────────────────────────  ───────  ────────────────────────');
 
-  for (let d = 1; d <= days; d++) {
+  for (let d = startDay + 1; d <= startDay + days; d++) {
     profile = advanceTo(profile, D(d));
 
     // 1. THE ENGINE DECIDES. No pack, no clock, no content — just the profile and the day.
@@ -210,7 +246,7 @@ export function runDemo(days = 30, language = 'de', override?: PackOverride): vo
     }
     if (drilled.length === 0) drilled = '—';
     say(
-      `  ${String(d).padStart(3)}  ${drilled.slice(0, 44).padEnd(44)}  ` +
+      `  ${String(d - startDay).padStart(3)}  ${drilled.slice(0, 44).padEnd(44)}  ` +
         `${String(known).padStart(3)}/${String(total).padEnd(3)}  ${bar(known, total)} ${band}`,
     );
   }
@@ -240,5 +276,75 @@ export function runDemo(days = 30, language = 'de', override?: PackOverride): vo
   );
   say('     the passage every single day never promotes anything. Only drills do.');
   say('   · Nothing graduates. Proven words keep coming back — that is where retention lives.');
+  say('');
+}
+
+/**
+ * The three archetypes on one screen, so "different learners" is something you can look at.
+ *
+ * This is the shortest demonstration of why placement matters: the same text, the same engine, and
+ * a starting comprehension that ranges from nothing to most of it.
+ */
+export function runCompare(language = 'de', override?: PackOverride): void {
+  const base = COURSES[language] ?? COURSES.de;
+  if (base === undefined) return;
+  const v = variety(base.variety);
+  if (v === undefined) return;
+
+  const pack = override?.pack ?? base.pack;
+  const passage = override?.passage ?? base.passage;
+  const frequency = override?.frequency;
+  if (frequency === undefined) {
+    say('  runCompare needs a real pack: npm run demo -- de --pack ../packs/de compare');
+    return;
+  }
+
+  const day = 200 as Day;
+  const opts = { variety: v, day, seed: 42, frequency };
+  const people = [
+    ['beginner', beginner(pack, opts)],
+    ['heritage speaker', heritageSpeaker(pack, opts)],
+    ['classroom, 120 words', classroomLearner(pack, { ...opts, words: 120 })],
+  ] as const;
+
+  say('');
+  say(`  Three learners, one text, ${pack.id}.`);
+  say('');
+  say('  who                    knows   says   reads the passage');
+  say('  ─────────────────────  ─────  ─────  ─────────────────────────────────────────');
+
+  for (const [name, profile] of people) {
+    let recognises = 0;
+    let produces = 0;
+    for (const [key, state] of Object.entries(profile.units)) {
+      if (state.box !== 'understood') continue;
+      if (key.startsWith('produce:')) produces++;
+      else recognises++;
+    }
+    const c = coverage(profile, pack, { text: passage, variety: v, direction: 'recognise' });
+    const known = c.kind === 'measured' ? c.knownTokens : 0;
+    const total = c.kind === 'measured' ? c.runningTokens : 0;
+    const band = c.kind === 'measured' ? c.band : c.kind;
+    say(
+      `  ${name.padEnd(21)}  ${String(recognises).padStart(5)}  ${String(produces).padStart(5)}  ` +
+        `${bar(known, total, 20)} ${String(known)}/${String(total)} ${band}`,
+    );
+  }
+
+  say('');
+  say('  The heritage speaker knows far more than they can say — the gap this product exists for.');
+  say(
+    '  The classroom learner has a clean prefix of the word list; the heritage speaker has holes',
+  );
+  say('  scattered through it, which is what learning a language at home actually leaves behind.');
+  say('');
+  say(
+    '  ⚠️ The beginner row is the only one a REAL learner can be in today. Placement is not built,',
+  );
+  say('     so a heritage speaker who understands 70% of this text is taught as though they knew');
+  say(
+    '     none of it. The other two rows are fabricated histories — honest in a simulation, and a',
+  );
+  say('     lie in the product.');
   say('');
 }

@@ -11,6 +11,10 @@
  * Usage:  npm run demo               (German, 30 days)
  *         npm run demo -- ar          Arabic
  *         npm run demo -- de 90       German, 90 days
+ *         npm run demo -- de --pack ../packs/de heritage
+ *
+ * The last argument is WHO: beginner (default), heritage, or classroom. A heritage speaker or a
+ * classroom learner needs a real pack, because their prior knowledge is drawn from its word list.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -26,6 +30,10 @@ const days = Number(args.find((a) => /^\d+$/.test(a)) ?? 30);
 // HOST's job — the engine has no filesystem — so it happens here and the data is handed in.
 const packIndex = args.indexOf('--pack');
 const packDir = packIndex >= 0 ? args[packIndex + 1] : undefined;
+// Who is using it. `beginner` is the only state a real learner can be in today — the other two are
+// fabricated histories, which is honest for a simulation and would be a lie in the product.
+const who = ['beginner', 'heritage', 'classroom'].find((w) => args.includes(w)) ?? 'beginner';
+const compare = args.includes('compare');
 
 mkdirSync(outDir, { recursive: true });
 const entry = join(outDir, 'entry.ts');
@@ -34,7 +42,9 @@ const bundle = join(outDir, 'demo.js');
 // A generated entry point, so the arguments are build-time constants and the bundle stays a pure
 // program with no argument parsing in it — which is what lets the same bytes run under Hermes.
 let head = `import { runDemo } from '../../src/testing/demo.js';\n`;
-let call = `runDemo(${String(Number.isFinite(days) ? days : 30)}, ${JSON.stringify(language)});\n`;
+let call =
+  `runDemo(${String(Number.isFinite(days) ? days : 30)}, ${JSON.stringify(language)}, ` +
+  `undefined, ${JSON.stringify(who)});\n`;
 
 if (packDir !== undefined) {
   const dir = resolve(process.cwd(), packDir);
@@ -54,16 +64,18 @@ if (packDir !== undefined) {
     : undefined;
 
   head =
-    `import { runDemo } from '../../src/testing/demo.js';\n` +
+    `import { runDemo, runCompare } from '../../src/testing/demo.js';\n` +
     `import { createPack } from '../../src/index.js';\n`;
   call =
     `const built = createPack(${JSON.stringify(config)} as never, ` +
     `{ frequency: ${JSON.stringify(frequency)}, lemmas: ${JSON.stringify(lemmas)} });\n` +
     `if (!built.ok) throw new Error('pack failed: ' + built.error.message);\n` +
-    `runDemo(${String(Number.isFinite(days) ? days : 30)}, ${JSON.stringify(language)}, ` +
-    `{ pack: built.value` +
+    (compare
+      ? `runCompare(${JSON.stringify(language)}, `
+      : `runDemo(${String(Number.isFinite(days) ? days : 30)}, ${JSON.stringify(language)}, `) +
+    `{ pack: built.value, frequency: ${JSON.stringify(frequency)}` +
     (passage === undefined ? '' : `, passage: ${JSON.stringify(passage)}`) +
-    ` });\n`;
+    ` }${compare ? '' : `, ${JSON.stringify(who)}`});\n`;
 }
 
 writeFileSync(entry, head + call);
