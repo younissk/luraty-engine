@@ -73,12 +73,12 @@ describe('coverage', () => {
     // `0 * 50 >= 0` — so a flat design reports an empty string as perfectly pitched material. Every
     // other test in this file has tokens, so nothing else in the suite can see it.
     const empty = coverage(knowsDe, frenchPack, { text: '', variety: FR, direction: 'recognise' });
-    expect(empty).toEqual({ kind: 'no-words', unkeyableTokens: 0 });
+    expect(empty).toEqual({ kind: 'no-words', unkeyableTokens: 0, ignoredTokens: 0 });
 
     // Punctuation and digits are not words under the pack's pattern.
     expect(
       coverage(knowsDe, frenchPack, { text: '12345 !!! ...', variety: FR, direction: 'recognise' }),
-    ).toEqual({ kind: 'no-words', unkeyableTokens: 0 });
+    ).toEqual({ kind: 'no-words', unkeyableTokens: 0, ignoredTokens: 0 });
 
     // The realistic case: text in a script this pack does not cover. `checkPack` reports the same
     // fact about a pack as `tokenizer-matches-nothing`.
@@ -88,7 +88,7 @@ describe('coverage', () => {
         variety: AR,
         direction: 'recognise',
       }),
-    ).toEqual({ kind: 'no-words', unkeyableTokens: 0 });
+    ).toEqual({ kind: 'no-words', unkeyableTokens: 0, ignoredTokens: 0 });
   });
 
   // ── E2 ────────────────────────────────────────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ describe('coverage', () => {
         variety: AR,
         direction: 'recognise',
       }),
-    ).toEqual({ kind: 'no-words', unkeyableTokens: 1 });
+    ).toEqual({ kind: 'no-words', unkeyableTokens: 1, ignoredTokens: 0 });
   });
 
   // ── E3 / E4 ───────────────────────────────────────────────────────────────────────────────────
@@ -379,5 +379,59 @@ describe('coverage', () => {
     expect(result.kind).toBe('too-short');
     if (result.kind !== 'too-short') return;
     expect(result.knownTokens).toBe(2);
+  });
+
+  // ── Names and other not-vocabulary ────────────────────────────────────────────────────────────
+  it('excludes caller-marked tokens from the denominator, not from existence', () => {
+    // ⚠️ Measured motivation, not a hypothetical: on held-out German news, names and acronyms are
+    // 66% of everything a 10,000-lemma pack does not know. Counting them makes the text read 89.6%
+    // and excluding them makes the SAME text read 96.8% — the difference between "the band is
+    // unreachable" and "the band is where we are".
+    const passage = `${text(24, 0)} Toyota Senegal`;
+    const query = { text: passage, variety: FR, direction: 'recognise' as const };
+
+    const counted = coverage(knowsDe, frenchPack, query);
+    expect(counted.kind).toBe('measured');
+    if (counted.kind !== 'measured') return;
+    expect(counted.runningTokens).toBe(26);
+    expect(counted.unknownTokens).toBe(2);
+    expect(counted.ignoredTokens).toBe(0);
+
+    const ignored = coverage(knowsDe, frenchPack, { ...query, ignore: ['Toyota', 'Senegal'] });
+    expect(ignored.kind).toBe('measured');
+    if (ignored.kind !== 'measured') return;
+    expect(ignored.runningTokens).toBe(24);
+    expect(ignored.unknownTokens).toBe(0);
+    expect(ignored.ignoredTokens).toBe(2);
+    // The accounting law still closes, with a third bucket.
+    expect(ignored.runningTokens + ignored.unkeyableTokens + ignored.ignoredTokens).toBe(
+      frenchPack.split(passage).length,
+    );
+  });
+
+  it('matches the RAW surface, so capitalisation still carries information', () => {
+    // The caller found these by looking at capitalisation; `key()` lowercases, so matching on the
+    // keyed form would make the whole mechanism unusable for the one signal it depends on.
+    const passage = `${text(24, 0)} Marche marche`;
+    const q = { text: passage, variety: FR, direction: 'recognise' as const };
+
+    const result = coverage(knowsDe, frenchPack, { ...q, ignore: ['Marche'] });
+    expect(result.kind).toBe('measured');
+    if (result.kind !== 'measured') return;
+    // Only the capitalised one was ignored; the lowercase one is still a running token.
+    expect(result.ignoredTokens).toBe(1);
+    expect(result.runningTokens).toBe(25);
+  });
+
+  it('does not let an ignore list turn a real text into no-words silently', () => {
+    // Ignoring everything is a caller error, and the honest answer is the same one an empty string
+    // gets — with `ignoredTokens` saying why, so the two are distinguishable.
+    const result = coverage(knowsDe, frenchPack, {
+      text: 'de de de',
+      variety: FR,
+      direction: 'recognise',
+      ignore: ['de'],
+    });
+    expect(result).toEqual({ kind: 'no-words', unkeyableTokens: 0, ignoredTokens: 3 });
   });
 });

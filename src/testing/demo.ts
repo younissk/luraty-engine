@@ -7,7 +7,13 @@ import { unitKey, variety, type Day, type UnitKey } from '../model/ids.js';
 import type { LanguagePack, Lemma } from '../model/pack.js';
 import type { Profile } from '../model/profile.js';
 
-import { beginner, classroomLearner, heritageSpeaker } from './learners.js';
+import {
+  beginner,
+  classroomLearner,
+  heritageSpeaker,
+  rustySpeaker,
+  silentReader,
+} from './learners.js';
 import { arabicPack, germanPack } from './packs.js';
 
 /**
@@ -303,15 +309,18 @@ export function runCompare(language = 'de', override?: PackOverride): void {
   const opts = { variety: v, day, seed: 42, frequency };
   const people = [
     ['beginner', beginner(pack, opts)],
+    ['classroom, 400 words', classroomLearner(pack, { ...opts, words: 400 })],
+    ['classroom, 2000 words', classroomLearner(pack, { ...opts, words: 2000 })],
     ['heritage speaker', heritageSpeaker(pack, opts)],
-    ['classroom, 120 words', classroomLearner(pack, { ...opts, words: 120 })],
+    ['silent reader', silentReader(pack, opts)],
+    ['rusty, 8 years away', rustySpeaker(pack, { ...opts, yearsAway: 8 })],
   ] as const;
 
   say('');
-  say(`  Three learners, one text, ${pack.id}.`);
+  say(`  ${String(people.length)} learners, one text, ${pack.id}.`);
   say('');
-  say('  who                    knows   says   reads the passage');
-  say('  ─────────────────────  ─────  ─────  ─────────────────────────────────────────');
+  say('  who                     reads   says   gap   reads the passage');
+  say('  ─────────────────────  ──────  ─────  ────  ────────────────────────────────────');
 
   for (const [name, profile] of people) {
     let recognises = 0;
@@ -325,26 +334,29 @@ export function runCompare(language = 'de', override?: PackOverride): void {
     const known = c.kind === 'measured' ? c.knownTokens : 0;
     const total = c.kind === 'measured' ? c.runningTokens : 0;
     const band = c.kind === 'measured' ? c.band : c.kind;
+    // The GAP is the number this product exists for: what they understand minus what they can say.
+    const gap = recognises === 0 ? 0 : Math.round((100 * (recognises - produces)) / recognises);
     say(
-      `  ${name.padEnd(21)}  ${String(recognises).padStart(5)}  ${String(produces).padStart(5)}  ` +
-        `${bar(known, total, 20)} ${String(known)}/${String(total)} ${band}`,
+      `  ${name.padEnd(21)}  ${String(recognises).padStart(6)}  ${String(produces).padStart(5)}  ` +
+        `${String(gap).padStart(3)}%  ${bar(known, total, 18)} ${String(known)}/${String(total)} ${band}`,
     );
   }
 
   say('');
-  say('  The heritage speaker knows far more than they can say — the gap this product exists for.');
-  say(
-    '  The classroom learner has a clean prefix of the word list; the heritage speaker has holes',
-  );
-  say('  scattered through it, which is what learning a language at home actually leaves behind.');
+  say('  GAP is the share of what they read that they cannot say — the number this product exists');
+  say('  for, and it separates the two kinds of learner more than any total does. A classroom');
+  say('  learner of 2000 words and a heritage speaker can read the same text and be nothing alike');
+  say('  underneath: 24% against 62%.');
+  say('');
+  say('  The classroom rows are a clean PREFIX of the word list. The heritage rows have holes');
+  say('  scattered through, denser on formal vocabulary (-ung, -heit, -tion) — the register gap,');
+  say('  which is what learning a language at home rather than in a classroom leaves behind.');
   say('');
   say(
     '  ⚠️ The beginner row is the only one a REAL learner can be in today. Placement is not built,',
   );
   say('     so a heritage speaker who understands 70% of this text is taught as though they knew');
-  say(
-    '     none of it. The other two rows are fabricated histories — honest in a simulation, and a',
-  );
+  say('     none of it. Every other row is a fabricated history — honest in a simulation, and a');
   say('     lie in the product.');
   say('');
 }

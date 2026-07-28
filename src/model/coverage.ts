@@ -58,6 +58,29 @@ export type CoverageQuery = {
    * number would still look plausible.
    */
   readonly direction: Direction;
+
+  /**
+   * Surface forms in this text that are **not vocabulary** — names, brands, codes, foreign
+   * fragments. Counted separately and excluded from the denominator.
+   *
+   * ⚠️ THE CALLER DECIDES, AND THAT IS THE WHOLE DESIGN. The obvious alternative is for the pack to
+   * detect names itself, and for German it cannot: German capitalises EVERY noun, so "capitalised
+   * and unknown" catches `Rezession` and `Impfpflicht` exactly as readily as `Toyota`. A pack-level
+   * heuristic would hand the learner credit for not knowing ordinary German words, which inflates
+   * the number the engine steers on — the one direction of error that must not be allowed.
+   *
+   * Arabic settles it: it has no letter case at all, so no token-level rule exists there even in
+   * principle. Proper-noun detection is a property of the CONTENT, not of the language, and the host
+   * is the only party that knows — it has the editor, or an NER pass, or a hand-tagged corpus.
+   *
+   * Why it matters: measured on held-out German news, names and acronyms are **66% of everything a
+   * 10,000-lemma pack does not know**. Counting them makes coverage read 89.6%; excluding them makes
+   * the same text read 96.8%, which is the difference between "unreachable" and "in band".
+   *
+   * Matched on the RAW surface, before normalization, because capitalisation is exactly the signal
+   * a host uses to find them.
+   */
+  readonly ignore?: readonly string[];
 };
 
 /**
@@ -99,6 +122,8 @@ export type Coverage =
        * in band — see {@link COVERAGE_BAND} for why that needs saying out loud.
        */
       readonly kind: 'no-words';
+      /** Tokens the caller marked as not vocabulary. */
+      readonly ignoredTokens: number;
       /**
        * Tokens that `split()` produced and `key()` reduced to nothing.
        *
@@ -120,6 +145,8 @@ export type Coverage =
       readonly knownTokens: number;
       readonly unknownTokens: number;
       readonly unkeyableTokens: number;
+      /** Tokens the caller marked as not-vocabulary. See {@link CoverageQuery.ignore}. */
+      readonly ignoredTokens: number;
       readonly unknownLemmas: readonly Lemma[];
       /** `COVERAGE_BAND.minTokens - runningTokens`. Always at least 1. */
       readonly needsMoreTokens: number;
@@ -142,7 +169,7 @@ export type Coverage =
       readonly unknownTokens: number;
       /**
        * Tokens dropped because `key()` returned the empty string.
-       * `runningTokens + unkeyableTokens === pack.split(text).length`.
+       * `runningTokens + unkeyableTokens + ignoredTokens === pack.split(text).length`.
        *
        * Reachable with an ordinary pack, not a contrivance: a run of tatweel — the Arabic
        * elongation character, plain typography — tokenizes as one word and `stripTatweel` erases
@@ -151,6 +178,14 @@ export type Coverage =
        * toward `'too-hard'` over a decorative character.
        */
       readonly unkeyableTokens: number;
+      /**
+       * Tokens the caller marked as not vocabulary — names, brands, codes.
+       *
+       * Excluded from `runningTokens` for the same reason `unkeyableTokens` is: a learner who does
+       * not recognise `Toyota` has no vocabulary gap, and counting it as one makes every text look
+       * harder than it is. See {@link CoverageQuery.ignore}.
+       */
+      readonly ignoredTokens: number;
       /**
        * Distinct unknown lemmas, de-duplicated, in first-appearance order.
        *

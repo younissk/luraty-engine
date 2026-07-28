@@ -153,6 +153,7 @@ describe('coverage cannot be read without deciding what it measured', () => {
       readonly text: string;
       readonly variety: Variety;
       readonly direction: engine.Direction;
+      readonly ignore?: readonly string[];
     }>();
   });
 });
