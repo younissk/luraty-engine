@@ -112,6 +112,40 @@ export function vocabularyOf(pack: LanguagePack, frequency: string): readonly Le
   return out;
 }
 
+/**
+ * Suffixes that mark a German word as formal, abstract or Latinate.
+ *
+ * ⚠️ A crude proxy for REGISTER, and the reason it exists is the whole heritage thesis. ADR-0002
+ * says this learner's gaps are "domain-shaped" — they know the language of the kitchen, the family
+ * and the street, and not the language of the form, the contract and the news. Modelling their
+ * holes as *random* would produce a learner who is merely worse, not one who is DIFFERENT, and
+ * every simulation built on that measures the wrong person.
+ *
+ * These endings — `-ung`, `-heit`, `-keit`, `-tion`, `-ismus`, `-ität` — are where German keeps its
+ * abstractions. It is a proxy, not a classifier: `Wohnung` (flat) is domestic and ends in `-ung`.
+ * A real register tag would come from the content pipeline. This is honest enough to make the two
+ * archetypes genuinely different and is labelled as approximate.
+ */
+const FORMAL_SUFFIXES = [
+  'ung',
+  'heit',
+  'keit',
+  'tion',
+  'sion',
+  'ismus',
+  'itaet',
+  'schaft',
+  'nis',
+  'tum',
+  'ent',
+  'anz',
+  'enz',
+];
+
+function looksFormal(lemma: string): boolean {
+  return FORMAL_SUFFIXES.some((suffix) => lemma.endsWith(suffix)) || lemma.length >= 13;
+}
+
 export type ArchetypeOptions = {
   readonly variety: Variety;
   readonly day: Day;
@@ -149,14 +183,21 @@ export function heritageSpeaker(pack: LanguagePack, options: ArchetypeOptions): 
 
   vocab.forEach((lemma, i) => {
     const depth = i / Math.max(vocab.length - 1, 1); // 0 = commonest, 1 = rarest
-    // Recognition is broad and thins out with rarity, but never becomes a clean cut-off — a
-    // heritage speaker knows some rare domestic words and misses some common formal ones.
-    const knows = next() < 0.95 - 0.75 * depth;
-    // Production lags badly, and the gap WIDENS with rarity. That is the shape of the problem.
+
+    // Recognition is broad and thins with rarity, but never becomes a clean cut-off — and it takes
+    // a large extra penalty on FORMAL vocabulary. That penalty is the register gap: it is what
+    // makes this learner different from a classroom one rather than merely better or worse.
+    const formalPenalty = looksFormal(lemma) ? 0.45 : 0;
+    const knows = next() < 0.95 - 0.7 * depth - formalPenalty;
+
+    // Production lags badly and the gap WIDENS with rarity. That is the shape of the problem.
     const says = knows && next() < 0.55 - 0.45 * depth;
 
     if (knows) recognises.push(lemma);
-    else if (next() < 0.4) met.push(lemma);
+    // Met-but-unproven only near the FRONTIER of what they know. A learner has not "met" every
+    // rare word in the language, and minting thousands of never-proven units at once produces a
+    // drill queue where everything ties on days-waiting and the tiebreak sorts it alphabetically.
+    else if (i < vocab.length * 0.35 && next() < 0.3) met.push(lemma);
     if (says) produces.push(lemma);
   });
 
@@ -168,6 +209,56 @@ export function heritageSpeaker(pack: LanguagePack, options: ArchetypeOptions): 
     produces,
     met,
     seed: options.seed ?? 7,
+  });
+}
+
+/**
+ * Someone who was fluent and has not used the language in years.
+ *
+ * The distinguishing shape is not a smaller vocabulary — it is knowledge that was PROVEN LONG AGO.
+ * Every unit is due, all at once, and the scheduler has to choose. This is the archetype that
+ * stresses selection rather than measurement.
+ */
+export function rustySpeaker(
+  pack: LanguagePack,
+  options: ArchetypeOptions & { readonly yearsAway: number },
+): Profile {
+  const vocab = vocabularyOf(pack, options.frequency);
+  const next = rng(options.seed ?? 13);
+  const recognises = vocab.filter((_, i) => next() < 0.9 - 0.6 * (i / vocab.length));
+  const produces = recognises.filter(() => next() < 0.6);
+
+  return learner({
+    language: pack.id,
+    variety: options.variety,
+    day: options.day,
+    recognises,
+    produces,
+    // Everything was proven before the gap, so everything is equally overdue today.
+    spreadOverDays: Math.max(1, Math.round(options.yearsAway * 365)),
+    seed: options.seed ?? 13,
+  });
+}
+
+/**
+ * The extreme of the recognition–production gap: reads comfortably, freezes when speaking.
+ *
+ * Common among heritage speakers who kept reading and stopped talking, and the case where
+ * measuring one direction and reporting it as "level" is most obviously wrong.
+ */
+export function silentReader(pack: LanguagePack, options: ArchetypeOptions): Profile {
+  const vocab = vocabularyOf(pack, options.frequency);
+  const next = rng(options.seed ?? 17);
+  const recognises = vocab.filter((_, i) => next() < 0.97 - 0.4 * (i / vocab.length));
+  const produces = recognises.filter(() => next() < 0.12);
+
+  return learner({
+    language: pack.id,
+    variety: options.variety,
+    day: options.day,
+    recognises,
+    produces,
+    seed: options.seed ?? 17,
   });
 }
 

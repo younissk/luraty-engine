@@ -4,7 +4,16 @@ import { coverage } from '../core/coverage.js';
 import { plan } from '../core/plan.js';
 import { unitKey, variety, type Day } from '../model/ids.js';
 
-import { beginner, classroomLearner, heritageSpeaker, learner, vocabularyOf } from './learners.js';
+import {
+  beginner,
+  classroomLearner,
+  heritageSpeaker,
+  learner,
+  rustySpeaker,
+  silentReader,
+  vocabularyOf,
+} from './learners.js';
+import { createPack } from '../core/pack.js';
 import { fixtures, germanPack } from './packs.js';
 
 /**
@@ -135,5 +144,131 @@ describe('learner archetypes', () => {
       plan(profile, { day: D(200), maxItems: 500 }).items.map((i) => i.daysWaiting),
     );
     expect(spread.size).toBeGreaterThan(5);
+  });
+
+  it('gives the heritage speaker REGISTER-shaped holes, not random ones', () => {
+    // ⚠️ THE PROPERTY THAT MAKES THIS ARCHETYPE THE RIGHT LEARNER RATHER THAN A WORSE ONE.
+    //
+    // ADR-0002 says the gaps are domain-shaped: they know the kitchen and the street, not the form
+    // and the contract. Random holes would produce someone merely weaker than a classroom learner;
+    // the register penalty is what makes them DIFFERENT. If this stops holding, every simulation of
+    // the target user is quietly measuring a generic intermediate.
+    // A purpose-built vocabulary rather than the shipped fixture: that one holds 130 words and only
+    // three of them carry a formal suffix, which is far too few to measure a RATE against.
+    const formalWords = [
+      'regierung',
+      'bildung',
+      'meinung',
+      'richtung',
+      'ordnung',
+      'leistung',
+      'haltung',
+      'freiheit',
+      'sicherheit',
+      'wahrheit',
+      'krankheit',
+      'gelegenheit',
+      'moeglichkeit',
+      'faehigkeit',
+      'einigkeit',
+      'schwierigkeit',
+      'nation',
+      'situation',
+      'position',
+      'reaktion',
+      'produktion',
+      'gesellschaft',
+      'wissenschaft',
+      'freundschaft',
+      'ereignis',
+      'ergebnis',
+    ];
+    const plainWords = [
+      'haus',
+      'brot',
+      'wasser',
+      'kind',
+      'mann',
+      'frau',
+      'hand',
+      'kopf',
+      'tisch',
+      'stuhl',
+      'baum',
+      'blume',
+      'hund',
+      'katze',
+      'milch',
+      'kaese',
+      'apfel',
+      'gehen',
+      'essen',
+      'trinken',
+      'sehen',
+      'geben',
+      'nehmen',
+      'kaufen',
+      'kochen',
+      'lesen',
+    ];
+    const built = createPack(fixtures.germanConfig, {
+      frequency: [...formalWords, ...plainWords].join(' '),
+    });
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const testPack = built.value;
+    const frequency = [...formalWords, ...plainWords].join(' ');
+
+    // Averaged over seeds: one seed is a coin flip, and the claim is about the DISTRIBUTION.
+    let formalKnown = 0;
+    let plainKnown = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      const p = heritageSpeaker(testPack, { ...opts, seed, frequency });
+      const knows = (l: string) => p.units[unitKey('recognise', V, l)]?.box === 'understood';
+      formalKnown += formalWords.filter(knows).length;
+      plainKnown += plainWords.filter(knows).length;
+    }
+    const formalRate = formalKnown / (30 * formalWords.length);
+    const plainRate = plainKnown / (30 * plainWords.length);
+    expect(formalRate, `formal ${String(formalRate)} vs plain ${String(plainRate)}`).toBeLessThan(
+      plainRate,
+    );
+  });
+
+  it('gives the silent reader an extreme gap and the classroom learner a narrow one', () => {
+    // The two ends of the axis the product is built on, asserted against each other rather than
+    // against a magic number — so the test survives any retuning of the archetypes themselves.
+    const gap = (profile: ReturnType<typeof learner>) => {
+      const c = counts(profile);
+      return c.recognise === 0 ? 0 : (c.recognise - c.produce) / c.recognise;
+    };
+
+    const silent = gap(silentReader(germanPack, { ...opts, seed: 42 }));
+    const heritage = gap(heritageSpeaker(germanPack, { ...opts, seed: 42 }));
+    const classroom = gap(classroomLearner(germanPack, { ...opts, seed: 42, words: 100 }));
+
+    expect(silent).toBeGreaterThan(heritage);
+    expect(heritage).toBeGreaterThan(classroom);
+  });
+
+  it('makes the rusty speaker overdue rather than ignorant', () => {
+    // The distinguishing shape is not a smaller vocabulary — it is knowledge proven LONG ago. This
+    // is the archetype that stresses selection instead of measurement, and it is the one that
+    // would expose a scheduler which cannot cope with everything being due at once.
+    // Day 5000 so neither learner's back-dating hits the day-0 floor — at day 200 both simply
+    // clamp there and the two are indistinguishable, which is what a first draft of this measured.
+    const far = { ...opts, day: D(5000) };
+    const rusty = rustySpeaker(germanPack, { ...far, seed: 42, yearsAway: 8 });
+    const fresh = heritageSpeaker(germanPack, { ...far, seed: 42 });
+
+    const meanWait = (profile: ReturnType<typeof learner>) => {
+      const items = plan(profile, { day: D(5000), maxItems: 100000 }).items;
+      return items.reduce((sum, i) => sum + i.daysWaiting, 0) / Math.max(items.length, 1);
+    };
+
+    // Mean, not max: max saturates at the epoch for any learner with one never-proven unit.
+    expect(meanWait(rusty)).toBeGreaterThan(meanWait(fresh));
+    // …and they still know a lot. Rusty is not beginner.
+    expect(counts(rusty).recognise).toBeGreaterThan(10);
   });
 });
