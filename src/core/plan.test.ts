@@ -281,4 +281,74 @@ describe('plan', () => {
     // Three units for one word, and the scheduler treats them as three.
     expect(plan(p, { day: D(30), maxItems: 10 }).items).toHaveLength(3);
   });
+
+  // ── The priority tiebreak ─────────────────────────────────────────────────────────────────────
+  it('uses the caller priority when two units have waited the same', () => {
+    // ⚠️ Ties are the NORMAL case, not an edge case: a learner who was placed, or who read a
+    // passage, acquires hundreds of units on one day and every one carries the same anchor forever.
+    // Without a priority the key tiebreak sorts them alphabetically, which is deterministic,
+    // correct, and a bad lesson.
+    const p = proven([
+      ['zebra', 5],
+      ['apple', 5],
+      ['mango', 5],
+    ]);
+    // Commonest first — what a host would pass from its frequency-ordered pack.
+    const priority = [U('mango'), U('zebra'), U('apple')];
+    expect(words(plan(p, { day: D(30), maxItems: 3, priority }))).toEqual([
+      'mango',
+      'zebra',
+      'apple',
+    ]);
+  });
+
+  it('never lets priority override how long a unit has waited', () => {
+    // Priority breaks TIES. It must not promote a fresh unit over an overdue one, or the spacing
+    // rule stops meaning anything and a host could starve its own review queue by mistake.
+    const p = proven([
+      ['fresh', 25],
+      ['stale', 1],
+    ]);
+    const priority = [U('fresh'), U('stale')];
+    expect(words(plan(p, { day: D(30), maxItems: 2, priority }))).toEqual(['stale', 'fresh']);
+  });
+
+  it('sorts unlisted units after every listed one', () => {
+    const p = proven([
+      ['aaa', 5],
+      ['bbb', 5],
+      ['zzz', 5],
+    ]);
+    // Only `zzz` is named, so it leads and the rest fall back to the key order behind it.
+    expect(words(plan(p, { day: D(30), maxItems: 3, priority: [U('zzz')] }))).toEqual([
+      'zzz',
+      'aaa',
+      'bbb',
+    ]);
+  });
+
+  it('is still deterministic across a save/load cycle with a priority', () => {
+    const p = proven([
+      ['zebra', 5],
+      ['apple', 5],
+      ['mango', 5],
+      ['kiwi', 5],
+    ]);
+    const loaded = deserialize(serialize(p));
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    const opts = { day: D(30), maxItems: 3, priority: [U('mango'), U('kiwi')] } as const;
+    expect(plan(p, opts)).toEqual(plan(loaded.value, opts));
+  });
+
+  it('ignores a duplicate in the priority list rather than letting it win twice', () => {
+    const p = proven([
+      ['aaa', 5],
+      ['bbb', 5],
+    ]);
+    // First mention wins, matching how the pack's own frequency list resolves duplicates.
+    expect(
+      words(plan(p, { day: D(30), maxItems: 2, priority: [U('bbb'), U('aaa'), U('bbb')] })),
+    ).toEqual(['bbb', 'aaa']);
+  });
 });

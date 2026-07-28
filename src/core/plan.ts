@@ -130,6 +130,13 @@ export function plan(profile: Profile, options: PlanOptions): Session {
   const maxItems = clamp(options.maxItems, 0);
   const gap = clamp(options.reviewGapDays, DEFAULT_REVIEW_GAP_DAYS);
 
+  // Built once per call rather than per comparison: a comparator that scans an array is O(n) inside
+  // an O(n log n) sort, which is how a session of 10,000 units becomes a frozen frame.
+  const priority = new Map<UnitKey, number>();
+  (options.priority ?? []).forEach((unit, index) => {
+    if (!priority.has(unit)) priority.set(unit, index);
+  });
+
   const due: SessionItem[] = [];
   for (const unit of Object.keys(profile.units) as UnitKey[]) {
     const state = profile.units[unit];
@@ -171,6 +178,10 @@ export function plan(profile: Profile, options: PlanOptions): Session {
 
   // ⚠️ THIS COMPARATOR IS THE ONLY THING MAKING A SESSION REPRODUCIBLE, so it is TOTAL on purpose.
   //
+  // Three tiers: days waited, then the caller's priority order, then the key. The last tier is what
+  // makes it total — keys are unique in a Record, so the comparator never returns 0 and the result
+  // cannot depend on input order or on sort stability.
+  //
   // `Object.keys` above returns insertion order, and a profile built by replaying evidence has a
   // DIFFERENT insertion order from the same profile loaded from storage — `serialize` writes its
   // units sorted, so `deserialize` inserts them sorted. A comparator that returned 0 for equal waits
@@ -185,7 +196,15 @@ export function plan(profile: Profile, options: PlanOptions): Session {
   // The comparison is on UTF-16 code units, the same total order `persist.ts` uses, and for the same
   // two reasons: `localeCompare` is ICU-backed and unavailable on Hermes, and a locale-aware sort
   // would make a learner's session depend on their device's language settings.
-  due.sort((a, b) => b.daysWaiting - a.daysWaiting || (a.unit < b.unit ? -1 : 1));
+  due.sort((a, b) => {
+    if (a.daysWaiting !== b.daysWaiting) return b.daysWaiting - a.daysWaiting;
+    // The caller's order, when it gave one. Anything it did not mention sorts after everything it
+    // did — `Infinity` rather than a large integer, so no list length can collide with it.
+    const pa = priority.get(a.unit) ?? Infinity;
+    const pb = priority.get(b.unit) ?? Infinity;
+    if (pa !== pb) return pa - pb;
+    return a.unit < b.unit ? -1 : 1;
+  });
 
   const items = due.slice(0, maxItems);
 

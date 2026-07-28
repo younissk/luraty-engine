@@ -38,6 +38,29 @@ export type PlanOptions = {
    * to a word the learner had merely skimmed forty times.
    */
   readonly reviewGapDays?: number;
+
+  /**
+   * Which units to prefer when two have waited exactly the same number of days.
+   *
+   * ⚠️ WHY THIS EXISTS. Ties are not an edge case — they are the normal case. A learner who was
+   * placed, or who read a passage, acquires hundreds of units on the same day, and every one of them
+   * then carries the same anchor forever. Without a priority the engine falls back to comparing the
+   * unit key, which is a total order and therefore correct, and which sorts the session
+   * ALPHABETICALLY:
+   *
+   *     agieren  alternative  anders  andrea  anforderung  ansatz  apotheke
+   *
+   * Deterministic, reproducible, and a bad lesson.
+   *
+   * The fix is data rather than cleverness: the host already loaded a frequency-ordered pack, so it
+   * knows which of two equally-overdue words is worth more. Pass those keys, commonest first. The
+   * engine stays language-free — it never looks the words up, it only respects the order it is
+   * given — and a host that wants to order by topic, difficulty or lesson plan can do that instead.
+   *
+   * Units absent from this list sort after every unit in it. Omit it and the key tiebreak applies,
+   * which is what every earlier version did.
+   */
+  readonly priority?: readonly UnitKey[];
 };
 
 /** One thing to do, with the reason it was chosen — so a host can explain itself to a learner. */

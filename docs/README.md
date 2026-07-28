@@ -5,8 +5,16 @@ Plain markdown, kept next to the code it describes.
 ```
 docs/
   concepts/    why the engine is shaped the way it is — the invariants a newcomer will break
+    determinism.md          the one load-bearing claim, and what it forbids
+    the-boundary.md         what may not enter this package, and how that is enforced
+    selection.md            how plan() chooses, with a worked example  ← start here
   guides/      how to do a specific thing, start to finish
+    adding-a-language.md    the pack contract as data
+    building-a-client.md    where your app ends and the engine begins  ← and here
 ```
+
+**New to the engine?** Read `concepts/selection.md` then `guides/building-a-client.md`. Between them
+they cover what the engine decides, what it refuses to decide, and why.
 
 The **API reference is not written by hand.** When the barrel has real exports, TypeDoc generates it
 from TSDoc comments in the source, so it cannot drift from the code. Hand-written API docs are a
