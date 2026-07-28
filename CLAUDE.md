@@ -66,6 +66,10 @@ npm run check        # format:check + typecheck + lint + test — the whole gate
 npm run check:publish # build + publint; the published shape, not the daily loop
 ```
 
+`make` on its own lists every command with one line each. Every target is a thin wrapper over an
+npm script — the scripts stay authoritative, the `Makefile` is the map. `make verify` is the gate
+plus the cross-runtime lane.
+
 Hooks are **husky** (`.husky/pre-commit`, `.husky/commit-msg`), installed automatically by
 `npm install`. Pre-commit runs `lint-staged` (prettier + eslint --fix on staged files only) then
 typecheck and test whole — those two cannot be narrowed to staged files, since `tsc` checks the
@@ -134,16 +138,17 @@ contract, not a lookup on a commit prefix. ⚠️ `changeset version` bumps `pac
 Layers are chosen by **failure class**, not by tool. A layer catching the same class as another is
 a cost dressed up as rigour, so each row below names the bug nothing else would find.
 
-| Layer       | Where                       | Catches, uniquely                                                                                                                                              |
-| ----------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Examples    | `*.test.ts`                 | A rule being wrong. Found the apostrophe/affix ordering bug.                                                                                                   |
-| Properties  | `*.property.test.ts`        | Inputs nobody would think to type. Found `key('constructor')` returning a **function**, in seconds.                                                            |
-| Sequences   | `sequence.property.test.ts` | Anything only wrong ACROSS operations. The fold law cannot see it — both its paths break identically. Found time running backwards on offline sync.            |
-| Simulation  | `simulation.test.ts`        | Rules individually right and wrong in combination, over 90 days, asserted after **every** day.                                                                 |
-| Wire golden | `wire-v1.golden.test.ts`    | Silent behaviour drift. Every other test is written in terms of the rules, so changing a rule changes its test too; a frozen string cannot rationalise.        |
-| Types       | `api.types.test.ts`         | A type quietly widening. Breaks nothing today, breaks every consumer later, suite green throughout.                                                            |
-| Conformance | `checkPack.ts`              | The engine right and the DATA wrong. No unit test reaches it: fixtures are correct by construction, and the input that fails is the host's real 20k-word file. |
-| Mutation    | `npm run mutate`            | Whether the tests pin anything at all. The meta-layer.                                                                                                         |
+| Layer         | Where                       | Catches, uniquely                                                                                                                                              |
+| ------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Examples      | `*.test.ts`                 | A rule being wrong. Found the apostrophe/affix ordering bug.                                                                                                   |
+| Properties    | `*.property.test.ts`        | Inputs nobody would think to type. Found `key('constructor')` returning a **function**, in seconds.                                                            |
+| Sequences     | `sequence.property.test.ts` | Anything only wrong ACROSS operations. The fold law cannot see it — both its paths break identically. Found time running backwards on offline sync.            |
+| Simulation    | `simulation.test.ts`        | Rules individually right and wrong in combination, over 90 days, asserted after **every** day.                                                                 |
+| Wire golden   | `wire-v1.golden.test.ts`    | Silent behaviour drift. Every other test is written in terms of the rules, so changing a rule changes its test too; a frozen string cannot rationalise.        |
+| Types         | `api.types.test.ts`         | A type quietly widening. Breaks nothing today, breaks every consumer later, suite green throughout.                                                            |
+| Conformance   | `checkPack.ts`              | The engine right and the DATA wrong. No unit test reaches it: fixtures are correct by construction, and the input that fails is the host's real 20k-word file. |
+| Cross-runtime | `npm run test:hermes`       | The code being right on your laptop and wrong on the phone. **Every other layer runs on Node**, where the ICU-backed APIs all work and hide the bug.           |
+| Mutation      | `npm run mutate`            | Whether the tests pin anything at all. The meta-layer.                                                                                                         |
 
 ⚠️ **A generator must be able to produce the input that breaks the code.** `fc.string()` emits
 printable ASCII only — measured, max code point 126. Every Arabic law was therefore fed input the
@@ -164,12 +169,43 @@ eventually gets lowered so a commit can land. Read the survivors, fix what matte
 
 Score today **86.94%** — `text.ts` 96, `record.ts` 95, `ids.ts` 95, `persist.ts` 83, `pack.ts` 77.
 
-### The biggest remaining gap
+### The cross-runtime lane
 
-**Nothing here has ever run on Hermes.** `src/internal/text.ts` exists _entirely_ because Hermes
-lacks ICU — explicit code-point ranges, a hand-written fold table, no `normalize()`, no `\p{...}` —
-and the claim that it behaves identically there is currently unverified. Every other runtime
-difference is guarded by lint; this one needs a real binary. Highest-value thing to add next.
+```bash
+make hermes-install   # one-off: fetch the VM into .hermes/ (~10MB, gitignored)
+make hermes           # or: npm run test:hermes
+```
+
+`src/internal/text.ts` exists _entirely_ because Hermes lacks ICU — explicit code-point ranges, a
+hand-written fold table, no `normalize()`, no `\p{...}`. Every other layer runs on Node, where all
+those APIs work perfectly, so the whole suite can be green while the package is broken on the only
+runtime that ships. Lint bans the APIs; this lane verifies the replacements.
+
+**How.** `src/testing/fingerprint.ts` is a pure function producing a deterministic string from
+every operation that could differ between engines — each normalize step, code-point iteration, both
+packs end to end, sorting, ids, a 20-day record→serialize→deserialize loop, JSON key order,
+`Math.imul`, float formatting. It is bundled with esbuild, run under both VMs, and diffed **line by
+line**. The output is text rather than a hash precisely so a failure names the input that broke.
+`fingerprint.test.ts` keeps the fingerprint itself from rotting into something that covers nothing.
+
+Status: **574 checks identical**. Measured on Hermes v0.13.0, not assumed:
+
+| API                           | Hermes                                                 |
+| ----------------------------- | ------------------------------------------------------ |
+| `Intl`                        | **undefined** — every `Intl.*` access throws           |
+| `'i'.toLocaleUpperCase('tr')` | `'I'`, where Node gives `'İ'` — **silently different** |
+| `normalize('NFD')`            | works, agrees with Node                                |
+| `localeCompare`               | works, agrees with Node                                |
+| `/\p{L}/u`                    | works, agrees with Node                                |
+
+So two of the four lint bans are proven load-bearing and two are precautionary — kept anyway, since
+Hermes can be built with or without ICU and the explicit implementations already exist.
+
+⚠️ **Honest limits.** This is the last standalone Hermes release (v0.13.0, RN 0.75.x); RN 0.86
+bundles its own in-tree build, so the lane catches the _class_ of bug, it does not certify a
+specific build. It runs the fingerprint, not the suite — vitest needs Node APIs Hermes lacks. And a
+missing binary is a **loud SKIP with exit 0**, never a silent pass; it is therefore not in
+`npm run check`.
 
 ## Docs
 

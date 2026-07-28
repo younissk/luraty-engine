@@ -6,3 +6,4 @@ coverage/
 .eslintcache
 reports/
 .stryker-tmp/
+.hermes/

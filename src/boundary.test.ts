@@ -56,6 +56,7 @@ const ALLOWED_DEPENDENCIES = [
   // always bumped together. Dependabot groups all devDeps into one PR partly for this reason.
   '@vitest/coverage-v8',
   'eslint',
+  'esbuild',
   'eslint-config-prettier',
   'fast-check',
   'husky',

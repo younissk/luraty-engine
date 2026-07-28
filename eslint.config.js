@@ -59,10 +59,25 @@ export default tseslint.config(
         // `tsc` is green, the tests pass, and the phone is where it breaks — either throwing or,
         // worse, quietly returning a different answer than it did on your laptop.
         //
-        // This is not hypothetical for THIS package: the two language-pack functions most likely to
-        // be written first are `split` (text → pieces) and `compare` (fold accents / fold
-        // diacritics), and the idiomatic implementations of those are `Intl.Segmenter` and
-        // `normalize()` / `localeCompare()`. The obvious code is the broken code.
+        // MEASURED against Hermes v0.13.0 by `npm run test:hermes`, rather than assumed:
+        //
+        //   Intl                      →  UNDEFINED. Every Intl.* access throws.
+        //   'i'.toLocaleUpperCase('tr') →  'I' on Hermes, 'İ' on Node. Silently DIFFERENT, no error.
+        //   'é'.normalize('NFD')      →  works, agrees with Node.
+        //   'ä'.localeCompare('z')    →  works, agrees with Node.
+        //   /\p{L}/u                  →  works, agrees with Node.
+        //
+        // So the first two bans are PROVEN load-bearing, and the rest are precautionary — kept
+        // anyway, for two honest reasons. React Native 0.86 bundles its own in-tree Hermes rather
+        // than this release, and Hermes can be built with or without ICU depending on platform and
+        // flags. The explicit implementations in internal/text.ts already exist and are tested, so
+        // conservatism here costs nothing and the alternative is a bug that only appears on some
+        // devices.
+        //
+        // Not hypothetical for THIS package either: the two language-pack functions most likely to
+        // be written first are `split` and `compare`, and the idiomatic implementations of those
+        // are `Intl.Segmenter` and `normalize()` / `localeCompare()`. The obvious code is the
+        // broken code.
         {
           selector: "MemberExpression[object.name='Intl']",
           message:
@@ -140,6 +155,23 @@ export default tseslint.config(
   {
     files: ['*.config.js', '*.config.ts', 'commitlint.config.js'],
     ...tseslint.configs.disableTypeChecked,
+  },
+
+  // ── Build/CI scripts ────────────────────────────────────────────────────────────────────────
+  // `scripts/` is Node-only tooling, deliberately outside tsconfig's `include` — it must never be
+  // part of the program that `src/` is typechecked against, or a Node API could leak in through a
+  // shared type. Consequence: type-aware rules have no program here, hence disableTypeChecked.
+  //
+  // The Node globals are listed explicitly rather than via the `globals` package. Adding a
+  // dependency to name five identifiers would mean an entry on the boundary allowlist, and a
+  // shorter allowlist is worth more here than the convenience.
+  {
+    files: ['scripts/**/*.mjs', 'scripts/**/*.js'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: { console: 'readonly', process: 'readonly', URL: 'readonly' },
+    },
   },
 
   // MUST BE LAST. eslint-config-prettier only turns rules OFF — every stylistic rule that would
