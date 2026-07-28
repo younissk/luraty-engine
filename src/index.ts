@@ -20,6 +20,20 @@ export type { Profile } from './model/profile.js';
 // ── What changes it ─────────────────────────────────────────────────────────────────────────────
 export type { Evidence, Outcome } from './model/evidence.js';
 
+// ── Language packs ──────────────────────────────────────────────────────────────────────────────
+// The engine knows no language. Everything language-specific arrives through this contract, and a
+// pack can be built from a JSON config plus data — so adding a language is not a code change.
+export type {
+  AffixConfig,
+  LanguagePack,
+  Lemma,
+  NormalizeStep,
+  PackConfig,
+  PackData,
+  TokenizeConfig,
+} from './model/pack.js';
+export { createPack } from './core/pack.js';
+
 // ── Persistence ─────────────────────────────────────────────────────────────────────────────────
 // `deserialize` returns a result and never throws: it runs at app launch against data written by an
 // older build, and a throw there is a learner whose app will not open.
