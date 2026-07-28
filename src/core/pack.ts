@@ -1,5 +1,5 @@
 import { applySteps } from '../internal/text.js';
-import type { LanguagePack, Lemma, PackConfig, PackData } from '../model/pack.js';
+import type { LanguagePack, Lemma, NormalizeStep, PackConfig, PackData } from '../model/pack.js';
 import type { Decoded } from '../model/wire.js';
 
 /**
@@ -32,7 +32,7 @@ function fail(message: string): Decoded<never> {
 }
 
 /**
- * Parse the frequency list into a rank lookup.
+ * Parse the frequency list into a rank lookup, **keyed by the normalized form**.
  *
  * Built once when the pack is created, not on every call. The data arrives as a rank-ordered string
  * because the position IS the rank — see {@link PackData.frequency} for why that matters on a
@@ -40,8 +40,32 @@ function fail(message: string): Decoded<never> {
  *
  * The Map doubles as the pack's lexicon: "is this a word at all?" is `has()`, which is what makes
  * safe affix stripping possible without a morphological analyser.
+ *
+ * ⚠️ NORMALIZED, and that is a correctness fix rather than tidying.
+ *
+ * This map used to be indexed by the RAW word from the frequency string, while every lookup against
+ * it — `rank()` and, crucially, the `onlyIfRemainderKnown` guard in `stripPrefixes` — passes a
+ * NORMALIZED form. So the two sides disagreed for every word any normalize step touches.
+ *
+ * Measured on this repo's own fixtures, before the fix:
+ *
+ * - `key('المدينة')` returned `المدينه` — the article `ال` was NOT stripped, because the guard
+ *   looked up `مدينه` (finals normalized) in a map holding `مدينة`. Meanwhile `key('مدينة')`
+ *   returned `مدينه`. **One word, two unit keys.** A learner who proves `مدينة` gets no credit for
+ *   `المدينة`, forever, and the engine reports it as their gap.
+ * - `rank(key(w))` was `undefined` for **7 of the 34** Arabic fixture words and for French `est`
+ *   (the 12th commonest word in its own list).
+ *
+ * Nothing errored. The pack built, tokenized and graded; it just quietly filed the article-bearing
+ * and bare forms of a word apart, which is systematic pessimism that reads as the learner's fault.
+ * It is exactly the shape of the wrong-separator bug below — a pack that works, quietly, and
+ * teaches nobody anything.
+ *
+ * The rank NUMBER still comes from the position in the raw list, so normalization cannot renumber
+ * anything: two entries that collapse to one form keep the earlier one's rank, and every later
+ * word keeps the position it had.
  */
-function buildRanks(frequency: string): Map<string, number> {
+function buildRanks(frequency: string, normalize: readonly NormalizeStep[]): Map<string, number> {
   const ranks = new Map<string, number>();
   let rank = 0;
   // ⚠️ ANY whitespace, not just a space. Splitting on ' ' alone meant a newline-separated list
@@ -54,10 +78,19 @@ function buildRanks(frequency: string): Map<string, number> {
   // would have hit it.
   for (const word of frequency.split(/\s+/)) {
     if (word.length === 0) continue;
+    // Incremented BEFORE the normalization check, because the rank is the position in the list the
+    // pack author wrote. A word that normalizes away still occupied a slot.
     rank += 1;
+    const normalized = applySteps(normalize, word);
+    // A frequency entry that normalizes to nothing (a lone tatweel, a stray diacritic) is not a
+    // word. Keeping it would put the empty string in the lexicon, and `stripPrefixes` would then
+    // accept any prefix whose remainder normalizes away.
+    if (normalized.length === 0) continue;
     // First occurrence wins: a duplicate later in the list is rarer by definition, and silently
-    // overwriting would make the more common entry disappear.
-    if (!ranks.has(word)) ranks.set(word, rank);
+    // overwriting would make the more common entry disappear. After normalization this also covers
+    // pairs that collapse — French `marche` and `marché` are one lexical entry, and the earlier
+    // (commoner) position is the honest rank for it.
+    if (!ranks.has(normalized)) ranks.set(normalized, rank);
   }
   return ranks;
 }
@@ -110,7 +143,7 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
     return fail(`tokenize pattern is not a valid expression: ${config.tokenize.pattern}`);
   }
 
-  const ranks = buildRanks(data.frequency);
+  const ranks = buildRanks(data.frequency, config.normalize);
 
   // A Map, not the plain object it arrives as — and this is a correctness fix, not a preference.
   //

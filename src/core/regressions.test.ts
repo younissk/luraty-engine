@@ -129,4 +129,39 @@ describe('regressions', () => {
     expect(frenchPack.key("l'automne")).toBe('automne');
     expect(frenchPack.key("L'AUTOMNE")).toBe('automne');
   });
+
+  it('indexes the frequency list by its NORMALIZED form, not the raw string', () => {
+    // Was: `buildRanks` keyed the map on the raw word from the frequency string, while every lookup
+    // against it passes a normalized form — `rank()` and, worse, the `onlyIfRemainderKnown` guard
+    // inside `stripPrefixes`. The two sides disagreed for every word a normalize step touches.
+    //
+    // The Arabic case is the one that matters, because `normalizeArabicFinals` maps ة → ه and the
+    // fixture list is written with ة. So the guard asked for `مدينه` in a map holding `مدينة`,
+    // refused to strip the article, and filed ONE WORD UNDER TWO UNIT KEYS.
+
+    // The bug, stated directly: an article-bearing form and its bare form are the same knowledge.
+    expect(arabicPack.key('المدينة')).toBe(arabicPack.key('مدينة'));
+    expect(arabicPack.key('المدرسة')).toBe(arabicPack.key('مدرسة'));
+    expect(arabicPack.key('الحكومة')).toBe(arabicPack.key('حكومة'));
+
+    // And its visible symptom: a word in the pack's own frequency list was unrankable once keyed.
+    // Seven of the 34 Arabic fixture words were, along with French `est`.
+    for (const word of ['على', 'أن', 'إلى', 'مدرسة', 'جريدة', 'حكومة', 'مدينة']) {
+      expect(arabicPack.rank(arabicPack.key(word)), word).toBeDefined();
+    }
+
+    // A word already in its normalized form was never affected, which is why this hid so well —
+    // `سوق` has nothing for a normalize step to change, so the common case looked healthy.
+    expect(arabicPack.key('السوق')).toBe('سوق');
+
+    // French: `marché` and `marche` are one lexical entry after folding, and the earlier (commoner)
+    // position is the rank kept for it. The later duplicate must not overwrite it.
+    expect(frenchPack.rank('marche')).toBe(frenchPack.rank(frenchPack.key('marché')));
+
+    // ⚠️ `est` is STILL unrankable, and that is correct rather than a leftover: the lemma table maps
+    // it to `etre`, which the fixture's frequency list does not contain. That is a data gap in the
+    // pack, not a defect in the index — the kind of thing `checkPack` exists to report.
+    expect(frenchPack.key('est')).toBe('etre');
+    expect(frenchPack.rank('etre')).toBeUndefined();
+  });
 });
