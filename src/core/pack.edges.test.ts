@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AffixConfig, PackConfig } from '../model/pack.js';
+import type { AffixConfig, NormalizeStep, PackConfig } from '../model/pack.js';
 import { fixtures, frenchPack } from '../testing/packs.js';
 
 import { createPack } from './pack.js';
@@ -54,6 +54,67 @@ describe('validation messages say what is wrong', () => {
     const r = build({ tokenize: { strategy: 'regex', pattern: '[\\u{ZZZZ}]+' } });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.message.length).toBeGreaterThan(10);
+  });
+});
+
+// ── The step lists are checked, not trusted ────────────────────────────────────────────────────
+// Regression. `createPack` promises a `Decoded` rather than a throw, because a config is a JSON
+// file a human wrote. Neither step list was checked, so an unrecognised name fell through to
+// `applyStep`'s exhaustive switch and came back out as `assertNever`'s exception.
+describe('normalize and compare steps', () => {
+  it('rejects an unknown normalize step instead of throwing', () => {
+    // `stripDiacritics` is the name this engine deliberately does NOT have — Arabic and Latin
+    // diacritics have nothing in common mechanically — and therefore the one an author is most
+    // likely to guess. It used to throw from inside `createPack`.
+    const r = build({ normalize: ['stripDiacritics' as NormalizeStep] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.kind).toBe('malformed');
+      expect(r.error.message).toContain('stripDiacritics');
+      // The message has to name the alternatives, or a pack author has nowhere to go from here.
+      expect(r.error.message).toContain('foldLatinDiacritics');
+    }
+  });
+
+  it('rejects an unknown compare step AT BUILD TIME, not mid-session', () => {
+    // The worse half. Nothing at build time touched the compare list, so this pack used to build
+    // clean, report healthy, and throw from `compare()` — when a learner submitted an answer.
+    const r = build({ compare: ['normalizeAlef' as NormalizeStep] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.message).toContain('normalizeAlef');
+  });
+
+  it('rejects a step list that is not a list', () => {
+    // A plain string is what a hand-written JSON file holds when someone forgets the brackets. It
+    // used to iterate character by character and complain about a step named "l".
+    const r = build({ normalize: 'lowercase' as unknown as NormalizeStep[] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.message).toContain('normalize');
+  });
+
+  it('rejects a name that is only reachable through the prototype chain', () => {
+    // `'constructor' in STEPS` is true for a plain object. This package has been bitten by that
+    // chain once already, in the lemma table.
+    for (const name of ['constructor', 'toString', '__proto__', 'valueOf']) {
+      const r = build({ normalize: [name as NormalizeStep] });
+      expect(r.ok, name).toBe(false);
+    }
+  });
+
+  it('accepts every step the engine actually implements', () => {
+    // The other half of the law: the check must not be so strict that a real pack stops building.
+    // Applying all eight to one config is nonsense linguistically and fine mechanically.
+    const all: NormalizeStep[] = [
+      'lowercase',
+      'stripPunctuation',
+      'stripArabicDiacritics',
+      'stripTatweel',
+      'normalizeArabicAlef',
+      'normalizeArabicFinals',
+      'foldLatinDiacritics',
+      'foldGermanUmlauts',
+    ];
+    expect(build({ normalize: all, compare: all }).ok).toBe(true);
   });
 });
 

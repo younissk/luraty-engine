@@ -177,8 +177,23 @@ npm run mutate     # minutes, not seconds — an audit, never a gate
 Deliberately **not** in `npm run check`, and with no score threshold: a hard number is one that
 eventually gets lowered so a commit can land. Read the survivors, fix what matters, move on.
 
-Score today **87.88%** — `coverage.ts` 97 (zero survivors), `text.ts` 96, `record.ts` 96, `ids.ts`
-95, `profile.ts` 92, `plan.ts` 89, `persist.ts` 83, `checkPack.ts` 79, `pack.ts` 78.
+Score today **84.96%** (757 of 891) — `coverage.ts` 97, `record.ts` 96, `ids.ts` 95, `profile.ts`
+92, `plan.ts` 88, `text.ts` 86, `persist.ts` 83, `checkPack.ts` 79, `pack.ts` 77, `assert.ts` 0.
+
+`assert.ts` at zero is honest: `assertNever`'s body is unreachable while the types are truthful, so
+nothing can pin its message. Do not "fix" it by asserting on an exception no correct program throws.
+
+⚠️ **THE NUMBER WAS OVERSTATED BEFORE, AND UNDERSTATED FOR TWO FILES — read this before trusting a
+future one.** `src/testing/packs.ts` used to `throw` when a fixture pack failed to build, at MODULE
+LOAD. A mutant that breaks pack construction therefore killed the whole importing test FILE before
+any test ran, vitest reported "11 files failed, **0 tests failed**", and Stryker — which scores
+kill-or-survive from test RESULTS — recorded it as **survived**. Measured: `pack.ts` 69.0 → 76.6 and
+`text.ts` 83.2 → 86.3 once `build()` returned a pack whose methods throw instead. Fifteen survivors
+in two files were false.
+
+The general shape is worth keeping in mind: **anything a mutant can break at import time is scored
+as surviving.** If a survivor looks impossible, apply it by hand and read whether vitest reports
+failing _tests_ or failing _files_.
 
 `plan.ts` is the worked example of what this lane is for. It scored **67.86%** first time, and 12 of
 its 15 survivors sat on one redundant pre-sort of `Object.keys` — redundant because the final

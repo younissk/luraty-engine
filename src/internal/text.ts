@@ -117,9 +117,7 @@ const LATIN_FOLD: Readonly<Record<string, string>> = {
  * it never reaches here.
  */
 // Spreading a string yields code points, which is exactly what a set of single characters wants.
-// The rule guards against decomposing emoji ZWJ sequences, and there are no emoji here. Worth
-// noting its suggested fix is `Intl.Segmenter` — which this package bans outright, because Hermes
-// has no ICU. The rule is right in general and wrong for this file.
+// (`no-misused-spread` is off package-wide; the argument lives in `eslint.config.js`, once.)
 const PUNCTUATION = new Set([
   ...'.,;:!?"`()[]{}<>«»„“”‘’–—-_/\\|@#$%^&*+=~',
   '،', // ، Arabic comma
@@ -233,6 +231,49 @@ function stripPunctuation(s: string): string {
     out += ch;
   }
   return out;
+}
+
+/**
+ * Every step, as a runtime value.
+ *
+ * A `Record<NormalizeStep, true>` rather than a hand-written array, because the annotation makes the
+ * compiler enforce exhaustiveness: adding a member to {@link NormalizeStep} and forgetting it here
+ * is a type error, not a step that silently fails to validate. That is the same guarantee
+ * {@link applyStep}'s switch gives, in the one other place that has to know the whole set.
+ *
+ * ⚠️ The `true` values are a COMPILE-TIME device and are never read — only the keys are. Flipping
+ * one to `false` therefore changes nothing, and `npm run mutate` reports each as a survivor forever.
+ * They stay because a `Record<K, true>` is the only shape that makes the compiler check the list is
+ * complete; an array would let a step go missing in silence, which is the failure this exists to
+ * prevent.
+ */
+const STEPS: Readonly<Record<NormalizeStep, true>> = {
+  lowercase: true,
+  stripPunctuation: true,
+  stripArabicDiacritics: true,
+  stripTatweel: true,
+  normalizeArabicAlef: true,
+  normalizeArabicFinals: true,
+  foldLatinDiacritics: true,
+  foldGermanUmlauts: true,
+};
+
+/** The step names, so an error can tell a pack author what they are allowed to write. */
+export const NORMALIZE_STEPS: readonly NormalizeStep[] = Object.keys(STEPS) as NormalizeStep[];
+
+/**
+ * The same names as a Set, which is what membership is actually tested against.
+ *
+ * ⚠️ A Set and not the object above, for the reason `createPack` uses a Map for its lemma table:
+ * `'constructor' in STEPS` is TRUE through the prototype chain, so an object lookup would validate
+ * `constructor`, `toString`, `__proto__` and `valueOf` and then throw from {@link applyStep}. A Set
+ * has no prototype chain to fall through, which removes the class rather than guarding each case.
+ */
+const STEP_NAMES: ReadonlySet<string> = new Set<string>(NORMALIZE_STEPS);
+
+/** Is this a step the engine actually has? */
+export function isNormalizeStep(value: unknown): value is NormalizeStep {
+  return typeof value === 'string' && STEP_NAMES.has(value);
 }
 
 /** Apply one named step. Exhaustive, so adding a step to the union breaks this until it is handled. */

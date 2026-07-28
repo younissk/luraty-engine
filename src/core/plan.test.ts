@@ -7,7 +7,7 @@ import type { Profile } from '../model/profile.js';
 
 import { DEFAULT_REVIEW_GAP_DAYS, OVER_ASK, plan } from './plan.js';
 import { deserialize, serialize } from './persist.js';
-import { createProfile } from './profile.js';
+import { advanceTo, createProfile } from './profile.js';
 import { PROMOTE_AFTER_SUCCESSES, record } from './record.js';
 
 /**
@@ -58,6 +58,47 @@ describe('plan', () => {
     let p = proven([['old', 1]]);
     p = record(p, [{ unit: U('brandnew'), outcome: 'unknown', tested: false, day: D(29) }]);
     expect(words(plan(p, { day: D(30), maxItems: 2 }))[0]).toBe('brandnew');
+  });
+
+  // ── The gap applies only to units that have been PROVEN ──────────────────────────────────────
+  // Regression. The gap check used to run on every unit, and a never-proven unit scores `day - 0`.
+  // So with a young epoch that score is small and the unit was filtered out entirely: a beginner
+  // started at day 0 got EMPTY sessions on days 1 and 2, while the identical profile started at
+  // day 2000 got its items immediately. `runDemo` printed those rows as "—" and nothing failed.
+  it('drills a never-proven unit immediately, whatever epoch the host chose', () => {
+    const met = (start: number): Profile =>
+      record(createProfile('ar', D(start)), [
+        { unit: U('fresh'), outcome: 'unknown', tested: false, day: D(start + 1) },
+      ]);
+
+    for (const start of [0, 1, 2, 2000]) {
+      const session = plan(met(start), { day: D(start + 1), maxItems: 5 });
+      expect(words(session)).toEqual(['fresh']);
+    }
+  });
+
+  it('makes the session independent of the host epoch', () => {
+    // The stronger statement: shifting a whole profile through time must not change WHAT is drilled.
+    // The bug above was exactly a violation of this, visible only near day 0.
+    const at = (start: number): string[] => {
+      let p = record(createProfile('ar', D(start)), [
+        { unit: U('fresh'), outcome: 'unknown', tested: false, day: D(start + 1) },
+        { unit: U('known'), outcome: 'known', tested: true, day: D(start + 1) },
+        { unit: U('known'), outcome: 'known', tested: true, day: D(start + 1) },
+      ]);
+      p = advanceTo(p, D(start + 2));
+      return words(plan(p, { day: D(start + 2), maxItems: 5 }));
+    };
+    expect(at(0)).toEqual(at(500));
+    expect(at(0)).toEqual(['fresh']); // proven yesterday is still inside the gap
+  });
+
+  it('still holds a proven unit back even when its proof day is early', () => {
+    // The other side of the fix: `neverProven` must key off the SENTINEL, not off a small number.
+    // A unit proven on day 1 in a day-1 epoch is proven, and the gap applies to it.
+    const p = proven([['x', 1]]);
+    expect(plan(p, { day: D(2), maxItems: 5 }).items).toHaveLength(0);
+    expect(plan(p, { day: D(4), maxItems: 5 }).items).toHaveLength(1);
   });
 
   it('does not drill a word the learner read today', () => {

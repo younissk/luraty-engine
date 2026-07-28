@@ -1,4 +1,4 @@
-import type { Day, UnitKey, Variety } from './ids.js';
+import type { Day, UnitKey } from './ids.js';
 import type { UnitState } from './unit.js';
 
 /**
@@ -44,6 +44,3 @@ export type Profile = {
    */
   readonly units: Readonly<Record<UnitKey, UnitState>>;
 };
-
-/** A variety that appears in this profile, for reporting. */
-export type ProfileVariety = Variety;

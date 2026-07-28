@@ -67,10 +67,19 @@ describe('plan laws', () => {
         for (const item of session.items) {
           // Every item is a unit the learner has actually met. A scheduler inventing keys would
           // hand the host an exercise for a word that is not in this learner's history at all.
-          expect(profile.units[item.unit], item.unit).toBeDefined();
-          // And every item is genuinely due.
-          expect(item.daysWaiting).toBeGreaterThanOrEqual(options.reviewGapDays);
+          const state = profile.units[item.unit];
+          expect(state, item.unit).toBeDefined();
           expect(item.daysWaiting).toBeGreaterThanOrEqual(0);
+
+          // And every item is genuinely due — but "due" has two arms, because `reviewGapDays` means
+          // the wait AFTER a proof. A unit that has never been proven has no proof to wait after,
+          // so it is due immediately and the gap does not apply to it. Stated as a disjunction
+          // rather than dropped: the gap must still bind everything it covers, or the law would
+          // pass for a scheduler that ignored spacing entirely.
+          const neverProven = state?.box === 'learning' && state.lastProven === 0;
+          if (!neverProven) {
+            expect(item.daysWaiting, item.unit).toBeGreaterThanOrEqual(options.reviewGapDays);
+          }
         }
 
         // Distinct: one unit cannot fill two slots in one session.

@@ -14,10 +14,32 @@ import type { LanguagePack, PackConfig, PackData } from '../model/pack.js';
  * @module
  */
 
+/**
+ * Build a fixture pack, deferring any failure to first use.
+ *
+ * ⚠️ IT DOES NOT THROW AT MODULE LOAD, and that is about the mutation lane rather than about style.
+ *
+ * These packs are built when this file is imported, so a throw here kills the whole importing test
+ * FILE before a single test runs. Vitest then reports "11 files failed, 0 tests failed" — and
+ * Stryker scores kill-or-survive from **test results**, so a mutant whose blast radius is a broken
+ * pack produced no failing test and was recorded as **SURVIVED**.
+ *
+ * Measured: hand-applying one such mutant (always-fail `checkSteps`' array guard) fails 11 test
+ * files, and `npm run mutate` reported that exact mutant as a survivor. So an unknown share of
+ * `pack.ts`'s survivors are false, and a lane that cries wolf is a lane nobody reads.
+ *
+ * Returning a pack whose every method throws moves the failure into the first TEST that uses it,
+ * which is a failing test result — visible to the audit, and a clearer error for a human too.
+ */
 function build(config: PackConfig, data: PackData): LanguagePack {
   const result = createPack(config, data);
-  if (!result.ok) throw new Error(`bad test fixture pack: ${result.error.message}`);
-  return result.value;
+  if (result.ok) return result.value;
+
+  const message = `bad test fixture pack "${config.id}": ${result.error.message}`;
+  const boom = (): never => {
+    throw new Error(message);
+  };
+  return { id: config.id, split: boom, key: boom, rank: boom, compare: boom };
 }
 
 // ── French ──────────────────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { applySteps } from '../internal/text.js';
+import { NORMALIZE_STEPS, applySteps, isNormalizeStep } from '../internal/text.js';
 import type { LanguagePack, Lemma, NormalizeStep, PackConfig, PackData } from '../model/pack.js';
 import type { Decoded } from '../model/wire.js';
 
@@ -29,6 +29,46 @@ const CHARACTER_CLASS_PATTERN = /^\[(?:\\.|[^\]\\])+\]\+$/;
 
 function fail(message: string): Decoded<never> {
   return { ok: false, error: { kind: 'malformed', message } };
+}
+
+/**
+ * Check a step list against the closed set the engine actually implements.
+ *
+ * ⚠️ WITHOUT THIS, `createPack` BROKE ITS OWN CONTRACT — it promises a {@link Decoded} rather than a
+ * throw, precisely because a config is a JSON file a human wrote. An unrecognised step reached
+ * `applyStep`'s exhaustive switch and came back out as `assertNever`'s exception.
+ *
+ * Three measured failures, all from configs a real author would plausibly write:
+ *
+ * - `normalize: ['stripDiacritics']` **threw** from inside `createPack`. That name is not an
+ *   invention — it is the obvious generic guess, and it is the one the engine deliberately does not
+ *   have (Arabic and Latin diacritics have nothing in common mechanically, so one name over both is
+ *   how the wrong fold gets applied to the wrong language).
+ * - `compare: ['normalizeAlef']` was **worse: the pack BUILT**, reported healthy, and threw later
+ *   from `compare()` — when a learner submitted an answer. The compare list is never touched at
+ *   build time, so nothing looked at it until mid-session.
+ * - `normalize: 'lowercase'` — a string where a JSON file should hold an array — threw complaining
+ *   about a step named `"l"`, because a string iterates character by character.
+ *
+ * `strategy` was already widened to `string` and checked, with a comment explaining that the type is
+ * a claim about intent rather than about what is in memory. The same argument always applied to
+ * these two fields; it just was not carried across.
+ */
+function checkSteps(
+  steps: readonly NormalizeStep[],
+  field: string,
+): Decoded<readonly NormalizeStep[]> {
+  if (!Array.isArray(steps)) {
+    return fail(`"${field}" must be a list of steps`);
+  }
+  for (const step of steps as readonly unknown[]) {
+    if (!isNormalizeStep(step)) {
+      return fail(
+        `unknown ${field} step ${JSON.stringify(step)} — must be one of: ${NORMALIZE_STEPS.join(', ')}`,
+      );
+    }
+  }
+  return { ok: true, value: steps };
 }
 
 /**
@@ -134,6 +174,18 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
     );
   }
 
+  // Both lists, checked BEFORE anything uses them — `compare`'s especially, because nothing at build
+  // time would otherwise touch it and the throw would land mid-session on a learner's answer.
+  const normalizeSteps = checkSteps(config.normalize, 'normalize');
+  if (!normalizeSteps.ok) return normalizeSteps;
+  const compareSteps = checkSteps(config.compare, 'compare');
+  if (!compareSteps.ok) return compareSteps;
+
+  // Everything below reads these, never `config.normalize` / `config.compare` — hold the parsed
+  // value, not the unchecked one, so the check cannot be bypassed by a later edit reaching past it.
+  const normalize = normalizeSteps.value;
+  const compare = compareSteps.value;
+
   let tokenizer: RegExp;
   try {
     // Compiled once, here, so a broken pattern is a pack-loading error rather than a crash on the
@@ -143,7 +195,7 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
     return fail(`tokenize pattern is not a valid expression: ${config.tokenize.pattern}`);
   }
 
-  const ranks = buildRanks(data.frequency, config.normalize);
+  const ranks = buildRanks(data.frequency, normalize);
 
   // A Map, not the plain object it arrives as — and this is a correctness fix, not a preference.
   //
@@ -172,8 +224,8 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
   // ordinary German and still address knowledge consistently.
   const lemmas = new Map<string, Lemma>();
   for (const [surface, lemma] of Object.entries(data.lemmas ?? {})) {
-    const from = applySteps(config.normalize, surface);
-    const to = applySteps(config.normalize, lemma);
+    const from = applySteps(normalize, surface);
+    const to = applySteps(normalize, lemma);
     if (from.length === 0 || to.length === 0) continue;
     // First entry wins, matching `buildRanks` — a duplicate later in the file is the author's
     // second thought, and silently overwriting makes the first one vanish without a word.
@@ -242,7 +294,7 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
   }
 
   function key(surface: string): Lemma {
-    const normalized = applySteps(config.normalize, surface);
+    const normalized = applySteps(normalize, surface);
     // An explicit lemma entry beats a derived one: irregular forms are exactly the ones affix rules
     // get wrong, and they are why the map exists.
     const mapped = lemmas.get(normalized);
@@ -281,8 +333,8 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
     },
 
     compare(given: string, expected: string): number {
-      const a = applySteps(config.compare, given).trim();
-      const b = applySteps(config.compare, expected).trim();
+      const a = applySteps(compare, given).trim();
+      const b = applySteps(compare, expected).trim();
 
       // ⚠️ An expected answer that normalizes to nothing scores ZERO, always — including when the
       // learner also submitted nothing.
@@ -293,8 +345,12 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
       // item forever, and it would never be reported — nobody complains about being told they are
       // right.
       //
-      // An unanswerable key is a content bug, so the honest score is 0 and `checkPack` flags the
-      // data. Awarding credit for it would be the engine covering up for its own content.
+      // An unanswerable key is a content bug, and the honest score for it is 0. Awarding credit
+      // would be the engine covering up for its own content.
+      //
+      // ⚠️ Nothing in this package will TELL you it happened. `checkPack` takes a text sample, not
+      // answer keys, so it cannot see one — catching them is a job for whatever pipeline mints the
+      // content. This comment used to claim `checkPack` flagged it, which it never did.
       if (b.length === 0) return 0;
 
       return a === b ? 1 : 0;

@@ -25,6 +25,10 @@ export type { Evidence, Outcome } from './model/evidence.js';
 // pack can be built from a JSON config plus data — so adding a language is not a code change.
 export type {
   AffixConfig,
+  // Reachable through `PackConfig.compounds` and therefore public whether or not it is named here.
+  // An unexported type a consumer must nevertheless fill in is a contract they can only satisfy by
+  // guessing at its shape.
+  CompoundConfig,
   LanguagePack,
   Lemma,
   NormalizeStep,
@@ -40,10 +44,17 @@ export { createPack } from './core/pack.js';
 export type { PackProblem, PackProblemKind, PackSample } from './core/checkPack.js';
 export { checkPack } from './core/checkPack.js';
 
-// ── Persistence ─────────────────────────────────────────────────────────────────────────────────
-// `deserialize` returns a result and never throws: it runs at app launch against data written by an
-// older build, and a throw there is a learner whose app will not open.
+// ── Results ─────────────────────────────────────────────────────────────────────────────────────
+// The engine's one result type, shared by BOTH doors that take untrusted input: `deserialize`
+// (bytes written by an older build) and `createPack` (a config file a human wrote). Neither throws.
+//
+// Note the asymmetry that the shared type cannot express: `createPack` only ever fails as
+// `'malformed'`. The other three kinds are about stored bytes and cannot arise from a pack config.
 export type { Decoded, DecodeError, DecodeErrorKind } from './model/wire.js';
+
+// ── Persistence ─────────────────────────────────────────────────────────────────────────────────
+// `deserialize` runs at app launch against data written by an older build, so a throw there is a
+// learner whose app will not open. It returns a result instead, always.
 export { PROFILE_SCHEMA_VERSION } from './model/wire.js';
 
 // ── Coverage ────────────────────────────────────────────────────────────────────────────────────

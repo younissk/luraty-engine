@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Evidence } from '../model/evidence.js';
 import { day, unitKey, variety, type Day, type UnitKey } from '../model/ids.js';
+import type { Profile } from '../model/profile.js';
 import { PROFILE_SCHEMA_VERSION } from '../model/wire.js';
 
 import { deserialize, serialize } from './persist.js';
@@ -153,6 +154,73 @@ describe('deserialize — never throws', () => {
     );
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.error.message).toContain('recognise:ar-msa:سوق');
+  });
+
+  // ── The key is parsed, not merely non-empty ─────────────────────────────────────────────────
+  // Regression. `deserialize` used to accept ANY non-empty string as a unit key, which minted
+  // branded `UnitKey`s by fiat: a blob holding "garbage" decoded clean, and `plan()` handed that
+  // string straight back to the host in `session.items[].unit`. The host cannot `parseUnitKey` it,
+  // so it can build no exercise — and the unit never leaves the profile, so the session is one item
+  // shorter every day from then on. Nothing errored.
+  it.each([
+    ['no colons at all', 'garbage'],
+    ['one colon only', 'recognise:de'],
+    ['an unknown direction', 'guess:de:haus'],
+    ['an empty variety', 'recognise::haus'],
+    ['an empty word', 'recognise:de:'],
+    ['not a key at all', '💥'],
+  ])('refuses a stored key that parseUnitKey rejects: %s', (_why, key) => {
+    const blob = JSON.stringify({
+      v: 2,
+      language: 'de',
+      day: 10,
+      units: [[key, { box: 'learning', seen: 1, lastSeen: 3, streak: 0, lastProven: 0 }]],
+    });
+    const got = deserialize(blob);
+    expect(got.ok).toBe(false);
+    if (!got.ok) {
+      expect(got.error.kind).toBe('malformed');
+      expect(got.error.message).toContain(key);
+    }
+  });
+
+  it('accepts every key it can itself mint', () => {
+    // The other half of the law above: the check must not be so strict that a profile this package
+    // serialized fails to load. A word containing a colon is the interesting case — the key format
+    // puts the word last precisely so that survives.
+    const colonised = unitKey('produce', AR, 'a:b:c');
+    const p: Profile = {
+      language: 'ar',
+      day: D(5),
+      units: {
+        [colonised]: { box: 'learning', seen: 1, lastSeen: D(5), streak: 0, lastProven: D(0) },
+      },
+    };
+    const loaded = deserialize(serialize(p));
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) expect(Object.keys(loaded.value.units)).toEqual([colonised]);
+  });
+
+  it('refuses a blob that lists the same unit twice', () => {
+    // Last-one-wins would make the survivor depend on write order, in a decoder whose every other
+    // malformation is named out loud. `serialize` cannot emit this — its input is a Record — so a
+    // blob carrying two is hand-edited or corrupt either way.
+    const key = unitKey('recognise', AR, 'سوق');
+    const blob = JSON.stringify({
+      v: 2,
+      language: 'ar',
+      day: 10,
+      units: [
+        [key, { box: 'learning', seen: 1, lastSeen: 3, streak: 0, lastProven: 0 }],
+        [key, { box: 'understood', seen: 99, lastSeen: 9, confirmedOn: 9 }],
+      ],
+    });
+    const got = deserialize(blob);
+    expect(got.ok).toBe(false);
+    if (!got.ok) {
+      expect(got.error.kind).toBe('malformed');
+      expect(got.error.message).toContain(key);
+    }
   });
 
   it('rebuilds usable state, not just a matching object', () => {

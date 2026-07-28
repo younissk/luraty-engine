@@ -33,21 +33,6 @@ export const PROMOTE_AFTER_SUCCESSES = 2;
  */
 const NEVER = 0 as Day;
 
-/**
- * Apply evidence to a single unit's state.
- *
- * The rules, and why each one is there:
- *
- * - **Only a real retrieval can promote.** A passive signal (`tested: false`) counts as an
- *   encounter and nothing more. This is the rule that stops "did not ask what it means" being
- *   recorded as "knows it" — see {@link Evidence.tested}.
- * - **Failure always demotes.** An understood unit that comes back wrong returns to learning with
- *   its streak cleared. Nothing is permanently known.
- * - **Nothing ever leaves the pool.** There is no third box and no terminal state; an understood
- *   unit stays eligible for review forever. Cumulative review — every session drawing from
- *   everything ever studied rather than the latest batch — is where the large retention gain lives,
- *   and a graduated state would quietly discard it.
- */
 /** Later of two days. Time only ever moves forward for a unit — see {@link applyOne}. */
 function later(a: Day, b: Day): Day {
   return a > b ? a : b;
@@ -63,6 +48,21 @@ function proves(evidence: Evidence): boolean {
   return evidence.tested && evidence.outcome === 'known';
 }
 
+/**
+ * Apply evidence to a single unit's state.
+ *
+ * The rules, and why each one is there:
+ *
+ * - **Only a real retrieval can promote.** A passive signal (`tested: false`) counts as an
+ *   encounter and nothing more. This is the rule that stops "did not ask what it means" being
+ *   recorded as "knows it" — see {@link Evidence.tested}.
+ * - **Failure always demotes.** An understood unit that comes back wrong returns to learning with
+ *   its streak cleared. Nothing is permanently known.
+ * - **Nothing ever leaves the pool.** There is no third box and no terminal state; an understood
+ *   unit stays eligible for review forever. Cumulative review — every session drawing from
+ *   everything ever studied rather than the latest batch — is where the large retention gain lives,
+ *   and a graduated state would quietly discard it.
+ */
 function applyOne(state: UnitState, evidence: Evidence): UnitState {
   const seen = state.seen + 1;
 

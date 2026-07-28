@@ -53,6 +53,29 @@ function provenOn(state: UnitState): Day {
 }
 
 /**
+ * Has this unit ever been successfully retrieved?
+ *
+ * `lastProven: 0` is the never-proven sentinel — see {@link Learning.lastProven}. Reaching the
+ * `understood` box requires {@link PROMOTE_AFTER_SUCCESSES} real retrievals, so that variant is
+ * proven by construction and needs no field to say so.
+ *
+ * ⚠️ The sentinel is ambiguous at exactly one point: a unit genuinely proven on day 0, in a host
+ * whose epoch is day 0. Such a unit reads as never-proven and is drilled once immediately instead of
+ * after the gap. That is the harmless direction, and it is inherent to storing "never" as a number —
+ * removing it means a wire-schema change, not a scheduler change.
+ */
+function neverProven(state: UnitState): boolean {
+  switch (state.box) {
+    case 'learning':
+      return state.lastProven === 0;
+    case 'understood':
+      return false;
+    default:
+      return assertNever(state, 'UnitState');
+  }
+}
+
+/**
  * Whole, non-negative, and finite. A bad option is clamped, never thrown at the caller.
  *
  * ⚠️ The `undefined` check is a KNOWN EQUIVALENT MUTANT and is kept deliberately. `Number.isFinite`
@@ -110,6 +133,11 @@ export function plan(profile: Profile, options: PlanOptions): Session {
   const due: SessionItem[] = [];
   for (const unit of Object.keys(profile.units) as UnitKey[]) {
     const state = profile.units[unit];
+    // ⚠️ A KNOWN EQUIVALENT MUTANT, like `clamp`'s `undefined` check and kept for the same reason.
+    // The key came from `Object.keys`, so the lookup cannot miss; the branch exists only because
+    // `noUncheckedIndexedAccess` types it as possibly-undefined. `npm run mutate` reports it as a
+    // survivor forever. The alternative is a non-null assertion, and a `!` that lies about an index
+    // signature is worse in the file than a survivor with a comment explaining itself.
     if (state === undefined) continue;
 
     // Whole days since this unit was last PROVEN. Never-proven units carry an anchor of 0, so they
@@ -120,7 +148,24 @@ export function plan(profile: Profile, options: PlanOptions): Session {
     // host's own number and may be behind `profile.day`. A negative wait would sort a unit as if it
     // were fresher than one proven today.
     const daysWaiting = Math.max(0, day - provenOn(state));
-    if (daysWaiting < gap) continue;
+
+    // ⚠️ THE GAP APPLIES ONLY TO UNITS THAT HAVE BEEN PROVEN, and leaving that out was a real bug.
+    //
+    // `reviewGapDays` means "days a unit must wait AFTER being proven" — see {@link PlanOptions}. A
+    // never-proven unit has nothing to wait out. Gating it on the gap anyway made the engine's
+    // decisions depend on which epoch the HOST happened to pick for day 0: a never-proven unit
+    // scores `day - 0`, so with a young epoch that score is small and the unit is filtered out.
+    //
+    // Measured on a beginner started at day 0: sessions on days 1 and 2 came back EMPTY, while the
+    // identical profile started at day 2000 got its items immediately. `runDemo` printed the empty
+    // rows as "—" and nothing failed. Two days of nothing to do is not a small bug for a learner
+    // opening the app for the first time.
+    //
+    // The ordering below needs no matching special case: `lastProven` is never negative, so a
+    // never-proven unit's `day - 0` is greater than or equal to every proven unit's `day - n`. It
+    // already sorts first, at every epoch.
+    if (!neverProven(state) && daysWaiting < gap) continue;
+
     due.push({ unit, daysWaiting });
   }
 

@@ -21,7 +21,16 @@
  */
 export const PROFILE_SCHEMA_VERSION = 2;
 
-/** A unit's state, as stored by schema v1. Frozen — this shape has a copy in storage. */
+/**
+ * A unit's state, as stored by schema v1. **Frozen.**
+ *
+ * Nothing in `src/` reads this type, and that is correct rather than dead code: a migration is
+ * `unknown -> unknown` on purpose (see `MIGRATIONS` in `core/persist.ts`), because it operates on
+ * data written by code that no longer exists and typing it against today's shapes would be a lie.
+ * These declarations are the RECORD of what v1 looked like — the thing you need in front of you to
+ * read the v1→v2 migration and judge whether it is right. Deleting them because the compiler cannot
+ * see a reference deletes the only description of the bytes still being migrated.
+ */
 export type WireUnitV1 =
   | {
       readonly box: 'learning';
@@ -58,6 +67,9 @@ export type WireUnitV2 =
       readonly confirmedOn: number;
     };
 
+/** One v1 unit, as a `[key, state]` pair. Frozen; the reasoning is on {@link WireEntryV2}. */
+export type WireEntryV1 = readonly [key: string, unit: WireUnitV1];
+
 /**
  * One unit, as a `[key, state]` pair.
  *
@@ -76,7 +88,6 @@ export type WireUnitV2 =
  * A sorted array of pairs has no such quirk. The ordering is in the data rather than in an engine
  * behaviour we are hoping stays true.
  */
-export type WireEntryV1 = readonly [key: string, unit: WireUnitV1];
 export type WireEntryV2 = readonly [key: string, unit: WireUnitV2];
 
 export type WireProfileV1 = {
@@ -91,7 +102,7 @@ export type WireProfileV2 = {
   readonly v: 2;
   readonly language: string;
   readonly day: number;
-  /** Sorted by key, always. See {@link WireEntryV1}. */
+  /** Sorted by key, always. See {@link WireEntryV2}. */
   readonly units: readonly WireEntryV2[];
 };
 

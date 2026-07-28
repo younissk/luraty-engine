@@ -1,4 +1,4 @@
-import type { Day } from '../model/ids.js';
+import { isUnitKey, type Day, type UnitKey } from '../model/ids.js';
 import type { Profile } from '../model/profile.js';
 import type { UnitState } from '../model/unit.js';
 import {
@@ -230,7 +230,7 @@ export function deserialize(text: string): Decoded<Profile> {
   if (!isWholeNumber(wire.day)) return fail('malformed', 'profile has no valid day');
   if (!Array.isArray(wire.units)) return fail('malformed', 'profile units are not a list');
 
-  const units: Record<string, UnitState> = {};
+  const units: Record<UnitKey, UnitState> = {};
   for (const entry of wire.units) {
     if (!Array.isArray(entry) || entry.length !== 2) {
       return fail('malformed', 'a unit entry is not a [key, state] pair');
@@ -239,10 +239,36 @@ export function deserialize(text: string): Decoded<Profile> {
     if (typeof key !== 'string' || key.length === 0) {
       return fail('malformed', 'a unit entry has no key');
     }
+    // ⚠️ THE KEY IS PARSED, not merely checked for being a non-empty string.
+    //
+    // `Profile.units` is typed `Record<UnitKey, …>`, and `UnitKey` is branded precisely so that
+    // only `unitKey()` can mint one. Accepting any string here minted them by fiat: a blob holding
+    // `"garbage"` decoded clean, and `plan()` then handed that string straight back to the host in
+    // `session.items[].unit` and `content.units`. The host cannot `parseUnitKey` it, so it can
+    // build no exercise for it — and because the unit stays in the profile forever, the session is
+    // one item shorter every day from then on. Nothing errors; the learner just gets less.
+    //
+    // This is the one place the engine cannot assume its own invariants held (see
+    // {@link parseUnitKey}), which is exactly why the check belongs here rather than in the host.
+    //
+    // A GUARD and not a cast: `isUnitKey` narrows, so `unitKey()` stays the only `as UnitKey` in
+    // the package. A cast here would be a promise where the file's whole job is a check.
+    if (!isUnitKey(key)) {
+      // Safe to include: a key is a direction, a variety and a word the HOST chose. It is not
+      // learner-authored content.
+      return fail('malformed', `unit key "${key}" is not a valid unit key`);
+    }
+    // A duplicate would silently last-one-win, and the survivor would depend on write order — in a
+    // decoder whose every other malformation is named out loud. `serialize` cannot emit one (its
+    // input is a Record), so a blob carrying two is hand-edited or corrupt either way.
+    //
+    // Indexed rather than `in`: `'constructor' in {}` is TRUE through the prototype chain, and this
+    // package has already been bitten once by exactly that (see `createPack`'s lemma Map).
+    if (units[key] !== undefined) {
+      return fail('malformed', `unit "${key}" appears more than once`);
+    }
     const state = parseUnit(value);
     if (state === undefined) {
-      // The key is safe to include — it is a direction, a variety and a word, all of which the
-      // host chose. It is not learner-authored content.
       return fail('malformed', `unit "${key}" has an unreadable state`);
     }
     units[key] = state;
