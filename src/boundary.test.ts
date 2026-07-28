@@ -46,8 +46,17 @@ const pkg = pkgJson as unknown as {
  * If a tool needs a UI framework, it belongs in a SIBLING package, not this one.
  */
 const ALLOWED_DEPENDENCIES = [
+  '@changesets/cli',
+  '@commitlint/cli',
+  '@commitlint/config-conventional',
   '@eslint/js',
   'eslint',
+  'eslint-config-prettier',
+  'husky',
+  'lint-staged',
+  'prettier',
+  'publint',
+  'tsdown',
   'typescript',
   'typescript-eslint',
   'vitest',
@@ -106,7 +115,7 @@ describe('engine boundary', () => {
     ).toEqual([]);
   });
 
-  it('does not depend on a database client — persistence is the host\'s job', () => {
+  it("does not depend on a database client — persistence is the host's job", () => {
     // Called out separately because it is the tempting one. The engine decides WHAT to ask for;
     // the host decides HOW it is fetched and stored. An engine that imports a database client can
     // no longer be tested without one, and "the engine is the backend" collapses into two coupled

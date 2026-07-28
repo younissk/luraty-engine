@@ -12,7 +12,7 @@ next. It must run unchanged under Hermes (React Native), Node, and a browser.
 `react-native`, no `expo-*`, no `@react-navigation/*`, no DOM globals, no database client.
 
 This is **compiler-enforced, not trusted**: this package has its own `node_modules` and none of
-those are in it, and module resolution walks only *upward* — never sideways into a consumer's
+those are in it, and module resolution walks only _upward_ — never sideways into a consumer's
 tree. So `import { View } from 'react-native'` here does not resolve and `npm run typecheck` fails
 with TS2307. `src/boundary.test.ts` asserts the same thing out loud, so it cannot break silently.
 
@@ -30,7 +30,7 @@ A consumer depends on the engine. Never the reverse. **The engine does not know 
 - Time is data: `day` lives on the profile and on every piece of evidence. There is nowhere to put
   a clock, so determinism is structural rather than a rule someone has to remember.
 - Randomness is arithmetic, not I/O: take a `seed` in the options and derive draws from it
-  (`hash(seed, day, key)`), so the *order* of calls can never change a decision.
+  (`hash(seed, day, key)`), so the _order_ of calls can never change a decision.
 - Content is requested, not fetched: a planning call returns a **description** of what it needs.
   The host goes and gets it. That is what makes the engine testable with no database.
 
@@ -44,7 +44,7 @@ These are the rules the scaffold already encodes. Keep them.
 - **Value in, value out.** Core functions take a state value and return a new one. No hidden
   mutable state — it is what lets a test fork a learner, diff two profiles, and bisect a replay.
 - **Make illegal states unrepresentable.** Discriminated unions over optional flags. `readonly` at
-  *every* level — `Readonly<T>` is only one level deep, so it will happily let
+  _every_ level — `Readonly<T>` is only one level deep, so it will happily let
   `p.units[k].seen++` through.
 - **Exhaustive switches.** An `assertNever` default, so adding a variant becomes a compiler-generated
   list of every place that must change.
@@ -61,9 +61,16 @@ These are the rules the scaffold already encodes. Keep them.
 ## Verify
 
 ```bash
-npm run typecheck && npm run lint && npm test    # ~3.3s total
-git config core.hooksPath .githooks              # once per clone
+npm install          # husky installs the hooks via the `prepare` script
+npm run check        # format:check + typecheck + lint + test — the whole gate
+npm run check:publish # build + publint; the published shape, not the daily loop
 ```
+
+Hooks are **husky** (`.husky/pre-commit`, `.husky/commit-msg`), installed automatically by
+`npm install`. Pre-commit runs `lint-staged` (prettier + eslint --fix on staged files only) then
+typecheck and test whole — those two cannot be narrowed to staged files, since `tsc` checks the
+program and a test can break from an edit elsewhere. Commit messages are checked by commitlint
+against a **closed scope list**: `core` · `model` · `pack` · `ci` · `docs` · `deps`.
 
 All three lanes are also wired into the parent repo's gate, which loops over packages and runs
 whichever of `lint` / `typecheck` / `test` each one defines.
@@ -88,25 +95,43 @@ React into `node_modules`, and `import { ref } from 'vue'` then typechecks green
 the two must be bumped together or the install breaks. Dependabot groups all devDeps into one PR
 partly for this reason.
 
-## Planned layout
-
-Nothing below `src/index.ts` exists yet. The intended shape:
+## Layout
 
 ```
 src/
-  index.ts        the public barrel — a hand-written allowlist
-  model/          types only: Profile, UnitState, Evidence, Session, LanguagePack
-  core/           pure functions: plan, record, coverage, serialize/deserialize
+  index.ts          the public barrel — a hand-written allowlist, never `export *`
+  model/            types only, no behaviour. core/ → model/, never back
+  core/             the pure functions: plan, record, coverage, serialize/deserialize
+  internal/         mechanisms. NEVER exported from the barrel
   boundary.test.ts
+docs/
+  concepts/         why the engine is shaped this way — the invariants a newcomer will break
+  guides/           how to do one thing, start to finish
 ```
+
+Each folder has a README stating what belongs in it and what does not. Read the one for the folder
+you are about to edit — they carry the rules that the types cannot.
 
 A **language pack** is injected, never imported: four small functions (`split`, `key`, `rank`,
 `compare`) plus data (a frequency list, a lemma table). Packs are ideally pure config + data files,
 so adding a language is not a code change. The engine never loads the data itself — the host does.
+See [docs/guides/adding-a-language.md](docs/guides/adding-a-language.md).
+
+## Distribution
+
+`private: true`, consumed as **TypeScript source** via `file:../engine`. No build in the daily loop.
+
+`npm run build` (tsdown → ESM + `.d.mts`) exists only so the _published_ shape can be checked;
+`publishConfig` swaps `main`/`types`/`exports` to `dist/` at publish time, so local source
+consumption is unaffected. `npm run check:publish` builds and runs publint.
+
+Versioning is **changesets**, not semantic-release — "is this breaking?" is a judgement about a
+contract, not a lookup on a commit prefix. ⚠️ `changeset version` bumps `package.json`, and
+`boundary.test.ts` pins `ENGINE_API_VERSION` to it, so the constant must move in the same commit.
 
 ## Testing
 
-Vitest is wired. Two property laws are worth writing *before* the functions they describe are
+Vitest is wired. Two property laws are worth writing _before_ the functions they describe are
 finished, because a scheduler's real bugs live in the difference between two paths to the same
 state:
 
@@ -117,14 +142,14 @@ state:
 Everything below is deliberately **not yet installed**, each with the trigger that turns it on.
 Adding any of them earlier is ceremony; adding them later is negligence.
 
-| Add | When |
-| --- | --- |
-| `fast-check` (property tests) | the day `src/model/` types land |
-| `expectTypeOf` (already in vitest — no install) | same day; the public types are a contract |
-| `@vitest/coverage-v8` + a branch ratchet | the first real module in `src/core/`, never before — on an empty repo the ratchet starts at 100% and blocks the first feature |
-| goldens via `toMatchFileSnapshot` | once `plan()` returns a shape. Never put `-u` in an npm script: regenerating a golden is a human deciding what "correct" means |
-| a real Hermes lane | the first real arithmetic in `src/core/` |
-| Stryker, as a hand-run audit | the first spacing/rating function. Read the survivors once; never a gate |
+| Add                                             | When                                                                                                                           |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `fast-check` (property tests)                   | the day `src/model/` types land                                                                                                |
+| `expectTypeOf` (already in vitest — no install) | same day; the public types are a contract                                                                                      |
+| `@vitest/coverage-v8` + a branch ratchet        | the first real module in `src/core/`, never before — on an empty repo the ratchet starts at 100% and blocks the first feature  |
+| goldens via `toMatchFileSnapshot`               | once `plan()` returns a shape. Never put `-u` in an npm script: regenerating a golden is a human deciding what "correct" means |
+| a real Hermes lane                              | the first real arithmetic in `src/core/`                                                                                       |
+| Stryker, as a hand-run audit                    | the first spacing/rating function. Read the survivors once; never a gate                                                       |
 
 ## Docs
 
@@ -132,5 +157,5 @@ Plain markdown under `docs/`, then TypeDoc over the same source when the barrel 
 
 **Not MkDocs**, despite it being asked for by name — it cannot read TypeScript, so the API reference
 would be hand-written and rot, and it puts a Python toolchain in a TypeScript repo. **Not VitePress,
-Docusaurus, Starlight or Nextra *in this package*** — see the dependency allowlist above. When a
+Docusaurus, Starlight or Nextra _in this package_** — see the dependency allowlist above. When a
 docs site is genuinely wanted, it goes in a sibling package where its React/Vue cannot reach `src/`.

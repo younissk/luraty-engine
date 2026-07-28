@@ -1,0 +1,11 @@
+# Fast lane first: lint-staged formats and auto-fixes only what you actually staged.
+npx lint-staged
+
+# Then the two lanes that CANNOT be narrowed to staged files, so they run whole:
+#   - tsc typechecks the program, not a file list — an edit here can break a type over there.
+#   - a test in one file can fail because of an edit in another.
+# Both are ~1s on this package. When the total passes ~5s, move `npm test` to a pre-push hook
+# rather than making this smarter: a slow hook gets bypassed with --no-verify, and a bypassed gate
+# is worse than no gate because it still feels like one.
+npm run --silent typecheck
+npm run --silent test

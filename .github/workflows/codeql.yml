@@ -1,0 +1,49 @@
+name: CodeQL
+
+# ⚠️ DOES NOT RUN YET — same reason as ci.yml: private repo, Actions billing-blocked account-wide.
+# Committed so it is live the day this goes public.
+#
+# HONEST NOTE ON WHAT THIS BUYS HERE. CodeQL hunts injection, path traversal, unsafe
+# deserialization and taint flows from untrusted input. This package has no I/O, no runtime
+# dependencies, and no untrusted input path — everything arrives as already-parsed values from the
+# host. So expect a low yield, and do not read a green badge as "this engine is secure".
+#
+# It earns its place for two narrower reasons: it watches the DEPENDENCY surface as devDeps grow,
+# and `deserialize()` will eventually parse attacker-influenceable persisted state, which is the one
+# genuine taint source this package will ever have. Revisit if it produces nothing but noise.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so newly-published rules run against unchanged code.
+    - cron: '31 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript-typescript

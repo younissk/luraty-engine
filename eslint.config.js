@@ -1,4 +1,5 @@
 import js from '@eslint/js';
+import prettierConfig from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -48,8 +49,7 @@ export default tseslint.config(
         },
         {
           selector: "NewExpression[callee.name='Date'][arguments.length=0]",
-          message:
-            'Determinism: no argless `new Date()` in the engine. Pass the day in as data.',
+          message: 'Determinism: no argless `new Date()` in the engine. Pass the day in as data.',
         },
 
         // ── The Hermes / ICU rules ──────────────────────────────────────────────────────────────
@@ -72,8 +72,7 @@ export default tseslint.config(
             'Runtime fidelity: no localeCompare() in the engine — its ordering depends on ICU data Hermes does not ship. Compare canonical keys produced by the language pack instead.',
         },
         {
-          selector:
-            "CallExpression[callee.property.name=/^toLocale(Lower|Upper)Case$/]",
+          selector: 'CallExpression[callee.property.name=/^toLocale(Lower|Upper)Case$/]',
           message:
             'Runtime fidelity: no toLocaleLowerCase/UpperCase in the engine (locale-dependent, ICU-backed). Use toLowerCase/toUpperCase, or fold the case explicitly in the language pack.',
         },
@@ -88,7 +87,16 @@ export default tseslint.config(
 
   // Config files sit outside tsconfig's `include`, so type-aware rules have no program for them.
   {
-    files: ['*.config.js', '*.config.ts'],
+    files: ['*.config.js', '*.config.ts', 'commitlint.config.js'],
     ...tseslint.configs.disableTypeChecked,
   },
+
+  // MUST BE LAST. eslint-config-prettier only turns rules OFF — every stylistic rule that would
+  // fight the formatter. Anything placed after it could switch one back on and reintroduce the
+  // fight, which shows up as a file that eslint --fix and prettier --write edit forever in turn.
+  //
+  // Note this is the `eslint-config-prettier` approach, NOT `eslint-plugin-prettier`: running the
+  // formatter as a lint rule reports every whitespace difference as an error and is markedly
+  // slower. Prettier formats, eslint reasons about code. Separate tools, separate jobs.
+  prettierConfig,
 );

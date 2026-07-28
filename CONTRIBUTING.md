@@ -38,21 +38,30 @@ Both sets are **lint errors**, not conventions. The message tells you what to do
 ## 3. The gate
 
 ```bash
-npm install
-git config core.hooksPath .githooks   # once per clone — enables the pre-commit gate
-npm run typecheck && npm run lint && npm test
+npm install     # husky installs the git hooks for you
+npm run check   # format:check + typecheck + lint + test
 ```
 
-The whole thing runs in about three seconds, so the hook runs all of it rather than doing
-staged-file cleverness. If it ever creeps past ~5s, move `npm test` to pre-push — a slow hook is a
-bypassed hook, and a bypassed gate is worse than none because it still feels like one.
+Hooks run automatically from then on. Pre-commit formats and auto-fixes **only your staged files**
+(prettier + eslint), then typechecks and tests the whole package — those two cannot be narrowed,
+since `tsc` checks the program and a test can break from an edit in a different file.
+
+If the hook ever creeps past ~5s, move the tests to pre-push rather than making it smarter. A slow
+hook gets bypassed with `--no-verify`, and a bypassed gate is worse than none because it still feels
+like one.
+
+Formatting is prettier, and it is not up for debate in review — `npm run format` settles it.
 
 ## 4. Commits
 
-[Conventional commits](https://www.conventionalcommits.org). Scopes: `core`, `model`, `pack`, `ci`,
-`docs`. (Not `engine` — everything here is the engine.)
+[Conventional commits](https://www.conventionalcommits.org), enforced by commitlint on the
+`commit-msg` hook. The scope list is **closed**: `core`, `model`, `pack`, `ci`, `docs`, `deps`.
+(Not `engine` — everything here is the engine, so it carries no information.)
 
 Explain **why** in the body, not what. The diff already says what.
+
+Run `npx changeset` if your change alters **what a consumer can rely on** — an export, a behaviour,
+an invariant. Tooling, tests and refactors that keep the surface identical do not need one.
 
 ---
 

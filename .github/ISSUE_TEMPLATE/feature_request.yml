@@ -1,0 +1,48 @@
+name: Feature request
+description: Something the engine should be able to express
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before writing: the engine deliberately does **not** fetch content, touch storage, read the
+        clock, or know a screen exists. Those are the host's job, and a request that needs one of
+        them is usually a request for a different layer.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What can't be done today? Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: Optional. A rough shape is fine.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Which layer is this?
+      options:
+        - core — a decision the engine makes
+        - model — a shape the engine needs to represent
+        - pack — language-specific knowledge
+        - not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Does it fit the engine's constraints?
+      description: Tick what applies. Not ticking one is fine — it just means it needs discussion.
+      options:
+        - label: It needs no I/O, no clock and no unseeded randomness
+        - label: It works the same under Hermes, Node and a browser
+        - label: It does not require a specific language, script or writing direction

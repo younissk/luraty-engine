@@ -1,0 +1,59 @@
+name: Bug report
+description: Something the engine does that it should not
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The engine is deterministic by design, so a good report here is usually short: the inputs
+        and the seed are enough to reproduce it exactly. If you have those, you have the bug.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: >
+        Ideally the profile, the pack id, the options (including the `seed`), and the call. A
+        failing test is the best possible version of this.
+      render: typescript
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Engine version
+      description: The `ENGINE_API_VERSION` export, or the commit SHA.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      description: >
+        This matters more than usual. The engine targets Hermes, Node and browsers, and the known
+        failure class is code that works on Node and breaks on Hermes — ICU-backed APIs especially.
+      options:
+        - Node
+        - Hermes (React Native)
+        - Browser
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: determinism
+    attributes:
+      label: Is it deterministic?
+      options:
+        - label: The same inputs and seed reproduce it every time
+        - label: It only happens sometimes — if so, say what varies between runs
