@@ -34,6 +34,12 @@ export type {
 } from './model/pack.js';
 export { createPack } from './core/pack.js';
 
+// Conformance checks for a pack, run against REAL data at load time. No unit test can reach the
+// failure this catches — fixtures are hand-written and correct by construction, and the input that
+// actually breaks is the 20,000-word file a host loads in production.
+export type { PackProblem, PackProblemKind, PackSample } from './core/checkPack.js';
+export { checkPack } from './core/checkPack.js';
+
 // ── Persistence ─────────────────────────────────────────────────────────────────────────────────
 // `deserialize` returns a result and never throws: it runs at app launch against data written by an
 // older build, and a throw there is a learner whose app will not open.

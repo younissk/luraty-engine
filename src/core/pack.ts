@@ -18,6 +18,15 @@ import type { Decoded } from '../model/wire.js';
 
 const MAX_PATTERN_LENGTH = 200;
 
+/**
+ * A single character class followed by `+`, and nothing else.
+ *
+ * The class body accepts escapes (`\\u0600`, `\\]`) and any character that is not an unescaped
+ * `]`. A character class cannot backtrack catastrophically — there is no nesting and no
+ * alternation to explore — so this shape is safe by construction rather than by inspection.
+ */
+const CHARACTER_CLASS_PATTERN = /^\[(?:\\.|[^\]\\])+\]\+$/;
+
 function fail(message: string): Decoded<never> {
   return { ok: false, error: { kind: 'malformed', message } };
 }
@@ -35,7 +44,15 @@ function fail(message: string): Decoded<never> {
 function buildRanks(frequency: string): Map<string, number> {
   const ranks = new Map<string, number>();
   let rank = 0;
-  for (const word of frequency.split(' ')) {
+  // ⚠️ ANY whitespace, not just a space. Splitting on ' ' alone meant a newline-separated list
+  // produced exactly one giant "word" — so `rank()` returned undefined for everything, and affix
+  // stripping stopped dead, because `onlyIfRemainderKnown` consults this same map and every lookup
+  // missed. The pack reported healthy the whole time.
+  //
+  // This is not a hypothetical format: Leipzig, OpenSubtitles and wordfreq — the three sources this
+  // project's own guide recommends — are all one word per line. The first real pack anyone builds
+  // would have hit it.
+  for (const word of frequency.split(/\s+/)) {
     if (word.length === 0) continue;
     rank += 1;
     // First occurrence wins: a duplicate later in the list is rarer by definition, and silently
@@ -64,6 +81,24 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
   }
   if (config.tokenize.pattern.length > MAX_PATTERN_LENGTH) {
     return fail('tokenize pattern is suspiciously long');
+  }
+
+  // ⚠️ THE SHAPE IS ENFORCED, not just the length.
+  //
+  // This guard used to be the length cap alone, with a comment claiming it stopped a pack file
+  // smuggling in catastrophic backtracking. That claim was simply false: `(a+)+b` is six
+  // characters, sailed through, and took 790 MILLISECONDS to fail on a 27-character string. On a
+  // phone that is a frozen app on the first sentence a learner reads, and it scales exponentially.
+  //
+  // So the pattern must be exactly a character class with a `+`: `[...]+`. That is not a
+  // restriction in practice — it is what every real tokenizer pattern already looks like
+  // (`[a-z]+`, `[؀-ۿ]+`, `[a-zA-Zà-öø-ÿ']+`) — and it makes runaway backtracking
+  // impossible by construction rather than by hoping nobody writes a nested quantifier. It also
+  // makes the code match what `TokenizeConfig.pattern` always claimed to be: "not a full regex".
+  if (!CHARACTER_CLASS_PATTERN.test(config.tokenize.pattern)) {
+    return fail(
+      `tokenize pattern must be a single character class followed by "+", such as "[a-z]+" — got "${config.tokenize.pattern}"`,
+    );
   }
 
   let tokenizer: RegExp;
@@ -136,7 +171,20 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
     compare(given: string, expected: string): number {
       const a = applySteps(config.compare, given).trim();
       const b = applySteps(config.compare, expected).trim();
-      if (a.length === 0 && b.length === 0) return 1;
+
+      // ⚠️ An expected answer that normalizes to nothing scores ZERO, always — including when the
+      // learner also submitted nothing.
+      //
+      // This used to return 1 when both sides came out empty, which meant `compare('!!!', '?')`
+      // was a correct answer: both normalize away to nothing, and nothing equals nothing. One
+      // punctuation-only answer key in a content batch would mark every learner correct on that
+      // item forever, and it would never be reported — nobody complains about being told they are
+      // right.
+      //
+      // An unanswerable key is a content bug, so the honest score is 0 and `checkPack` flags the
+      // data. Awarding credit for it would be the engine covering up for its own content.
+      if (b.length === 0) return 0;
+
       return a === b ? 1 : 0;
     },
   };

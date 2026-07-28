@@ -50,6 +50,11 @@ const ALLOWED_DEPENDENCIES = [
   '@commitlint/cli',
   '@commitlint/config-conventional',
   '@eslint/js',
+  '@stryker-mutator/core',
+  '@stryker-mutator/vitest-runner',
+  // ⚠️ Must track the vitest version EXACTLY — it peer-depends on a specific patch, so the two are
+  // always bumped together. Dependabot groups all devDeps into one PR partly for this reason.
+  '@vitest/coverage-v8',
   'eslint',
   'eslint-config-prettier',
   'fast-check',

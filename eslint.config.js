@@ -3,7 +3,9 @@ import prettierConfig from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['node_modules/**', 'dist/**', 'coverage/**'] },
+  // `reports/` holds generated Stryker and coverage output — thousands of lines of bundled HTML
+  // and JS that are not source and must never be linted.
+  { ignores: ['node_modules/**', 'dist/**', 'coverage/**', 'reports/**', '.stryker-tmp/**'] },
 
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
@@ -101,7 +103,22 @@ export default tseslint.config(
   // Note this is only about *declaration style*. Everything else in stylisticTypeChecked stays on.
   {
     files: ['src/**/*.ts'],
-    rules: { '@typescript-eslint/consistent-type-definitions': 'off' },
+    rules: {
+      '@typescript-eslint/consistent-type-definitions': 'off',
+
+      // ── no-misused-spread, off package-wide ────────────────────────────────────────────────────
+      // The rule warns that spreading a string yields code points, which can split emoji ZWJ
+      // sequences, and recommends `Intl.Segmenter` instead.
+      //
+      // `Intl` is BANNED in this package — Hermes ships without full ICU, and the ban is enforced
+      // two rules above. So the rule's only remedy is unavailable here by design, and a rule whose
+      // fix you have already outlawed is a rule that produces nothing but inline suppressions.
+      //
+      // Code points are also exactly what every use here wants: building a Set of single characters
+      // for a punctuation table, and an alphabet of Arabic letters for a test generator. Neither
+      // contains an emoji, and neither ever will.
+      '@typescript-eslint/no-misused-spread': 'off',
+    },
   },
 
   // ── Test fixtures may assert non-null ─────────────────────────────────────────────────────────

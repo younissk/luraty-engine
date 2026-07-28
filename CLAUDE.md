@@ -131,25 +131,45 @@ contract, not a lookup on a commit prefix. ⚠️ `changeset version` bumps `pac
 
 ## Testing
 
-Vitest is wired. Two property laws are worth writing _before_ the functions they describe are
-finished, because a scheduler's real bugs live in the difference between two paths to the same
-state:
+Layers are chosen by **failure class**, not by tool. A layer catching the same class as another is
+a cost dressed up as rigour, so each row below names the bug nothing else would find.
 
-- `record` is a fold — applying evidence one at a time equals applying it in a batch.
-- `serialize` → `deserialize` round-trips, and serialization is canonically key-ordered (JS objects
-  keep insertion order, so an unsorted `serialize` makes every replay hash test randomly flaky).
+| Layer       | Where                       | Catches, uniquely                                                                                                                                              |
+| ----------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Examples    | `*.test.ts`                 | A rule being wrong. Found the apostrophe/affix ordering bug.                                                                                                   |
+| Properties  | `*.property.test.ts`        | Inputs nobody would think to type. Found `key('constructor')` returning a **function**, in seconds.                                                            |
+| Sequences   | `sequence.property.test.ts` | Anything only wrong ACROSS operations. The fold law cannot see it — both its paths break identically. Found time running backwards on offline sync.            |
+| Simulation  | `simulation.test.ts`        | Rules individually right and wrong in combination, over 90 days, asserted after **every** day.                                                                 |
+| Wire golden | `wire-v1.golden.test.ts`    | Silent behaviour drift. Every other test is written in terms of the rules, so changing a rule changes its test too; a frozen string cannot rationalise.        |
+| Types       | `api.types.test.ts`         | A type quietly widening. Breaks nothing today, breaks every consumer later, suite green throughout.                                                            |
+| Conformance | `checkPack.ts`              | The engine right and the DATA wrong. No unit test reaches it: fixtures are correct by construction, and the input that fails is the host's real 20k-word file. |
+| Mutation    | `npm run mutate`            | Whether the tests pin anything at all. The meta-layer.                                                                                                         |
 
-Everything below is deliberately **not yet installed**, each with the trigger that turns it on.
-Adding any of them earlier is ceremony; adding them later is negligence.
+⚠️ **A generator must be able to produce the input that breaks the code.** `fc.string()` emits
+printable ASCII only — measured, max code point 126. Every Arabic law was therefore fed input the
+pack cannot even tokenize: ten laws, all green, all vacuous. `src/testing/alphabets.ts` exists so
+that cannot recur. Use `textFor(pack.id)` for behaviour laws; `anyText` only for "never throws".
 
-| Add                                             | When                                                                                                                           |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `fast-check` (property tests)                   | the day `src/model/` types land                                                                                                |
-| `expectTypeOf` (already in vitest — no install) | same day; the public types are a contract                                                                                      |
-| `@vitest/coverage-v8` + a branch ratchet        | the first real module in `src/core/`, never before — on an empty repo the ratchet starts at 100% and blocks the first feature  |
-| goldens via `toMatchFileSnapshot`               | once `plan()` returns a shape. Never put `-u` in an npm script: regenerating a golden is a human deciding what "correct" means |
-| a real Hermes lane                              | the first real arithmetic in `src/core/`                                                                                       |
-| Stryker, as a hand-run audit                    | the first spacing/rating function. Read the survivors once; never a gate                                                       |
+Two laws are worth writing _before_ the functions they describe: `record` is a fold, and
+`serialize` → `deserialize` round-trips with canonical ordering.
+
+### Mutation testing
+
+```bash
+npm run mutate     # minutes, not seconds — an audit, never a gate
+```
+
+Deliberately **not** in `npm run check`, and with no score threshold: a hard number is one that
+eventually gets lowered so a commit can land. Read the survivors, fix what matters, move on.
+
+Score today **86.94%** — `text.ts` 96, `record.ts` 95, `ids.ts` 95, `persist.ts` 83, `pack.ts` 77.
+
+### The biggest remaining gap
+
+**Nothing here has ever run on Hermes.** `src/internal/text.ts` exists _entirely_ because Hermes
+lacks ICU — explicit code-point ranges, a hand-written fold table, no `normalize()`, no `\p{...}` —
+and the claim that it behaves identically there is currently unverified. Every other runtime
+difference is guarded by lint; this one needs a real binary. Highest-value thing to add next.
 
 ## Docs
 

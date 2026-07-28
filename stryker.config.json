@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": [
+    "Mutation testing: the layer that tests the TESTS. It edits the source in small ways — flipping",
+    "a >= to a >, deleting a branch, changing a constant — and reports which edits the suite failed",
+    "to notice. A surviving mutant is a behaviour nothing pins.",
+    "",
+    "AN AUDIT, NOT A GATE, and deliberately not in `npm run check`. It takes minutes rather than the",
+    "gate's seconds, and a hard score threshold is a number that eventually gets lowered to make a",
+    "commit land. Run it, read the survivors, fix what matters, move on:  npm run mutate",
+    "",
+    "A hand-run sweep of ten mutants before this was configured killed all ten — but each died to",
+    "exactly ONE test, so every behaviour rests on a single assertion. That is what a full run is",
+    "for: finding the same fragility everywhere rather than in the ten places someone thought to look."
+  ],
+  "packageManager": "npm",
+  "testRunner": "vitest",
+  "reporters": ["html", "clear-text", "progress"],
+  "coverageAnalysis": "perTest",
+  "mutate": ["src/**/*.ts", "!src/**/*.test.ts", "!src/testing/**", "!src/index.ts"],
+  "thresholds": {
+    "high": 90,
+    "low": 80,
+    "break": null
+  },
+  "timeoutMS": 20000,
+  "htmlReporter": { "fileName": "reports/mutation/index.html" }
+}

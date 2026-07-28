@@ -73,6 +73,10 @@ const ARABIC_CONFIG: PackConfig = {
   // ال (the), و (and), ب (with), ل (for), ف (so), and the combined لل.
   affixes: { prefixes: ['ال', 'لل', 'و', 'ب', 'ل', 'ف', 'ك'], onlyIfRemainderKnown: true },
   compare: [
+    // `stripPunctuation` was missing here while French had it, so the two packs graded trailing
+    // punctuation differently: French accepted "marche." for "marche" and Arabic rejected "سوق."
+    // for "سوق". Nothing caught it, because no test compared packs against the same input.
+    'stripPunctuation',
     'stripArabicDiacritics',
     'stripTatweel',
     'normalizeArabicAlef',

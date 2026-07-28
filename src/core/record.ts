@@ -1,5 +1,6 @@
 import { assertNever } from '../internal/assert.js';
 import type { Evidence } from '../model/evidence.js';
+import type { Day } from '../model/ids.js';
 import type { Profile } from '../model/profile.js';
 import type { UnitState } from '../model/unit.js';
 
@@ -37,9 +38,26 @@ export const PROMOTE_AFTER_SUCCESSES = 2;
  *   everything ever studied rather than the latest batch — is where the large retention gain lives,
  *   and a graduated state would quietly discard it.
  */
+/** Later of two days. Time only ever moves forward for a unit — see {@link applyOne}. */
+function later(a: Day, b: Day): Day {
+  return a > b ? a : b;
+}
+
 function applyOne(state: UnitState, evidence: Evidence): UnitState {
   const seen = state.seen + 1;
-  const lastSeen = evidence.day;
+
+  // ⚠️ MONOTONIC, not simply `evidence.day`.
+  //
+  // A host syncing an offline queue replays evidence out of order — that case is anticipated in
+  // `record`'s own contract below. Taking the evidence's day directly meant a late-arriving day-3
+  // item would rewind a unit last seen on day 40, so a unit proven yesterday reported itself last
+  // proven 37 days ago.
+  //
+  // Nothing errors when that happens. It stays invisible until something does interval arithmetic
+  // on these fields, at which point it surfaces as a scheduling bug dated to a commit months
+  // earlier. Taking the later of the two also makes the result independent of arrival order, which
+  // is the property a sync queue actually needs.
+  const lastSeen = later(state.lastSeen, evidence.day);
 
   switch (state.box) {
     case 'learning': {
@@ -53,6 +71,7 @@ function applyOne(state: UnitState, evidence: Evidence): UnitState {
       }
       const streak = state.streak + 1;
       if (streak >= PROMOTE_AFTER_SUCCESSES) {
+        // A fresh promotion, so the evidence's own day is the confirmation date.
         return { box: 'understood', seen, lastSeen, confirmedOn: evidence.day };
       }
       return { box: 'learning', seen, lastSeen, streak };
@@ -69,7 +88,14 @@ function applyOne(state: UnitState, evidence: Evidence): UnitState {
         // proven" forever purely by appearing on screen.
         return { ...state, seen, lastSeen };
       }
-      return { box: 'understood', seen, lastSeen, confirmedOn: evidence.day };
+      // Monotonic for the same reason as `lastSeen`: a late-arriving day-3 confirmation must not
+      // make a unit proven on day 40 look 37 days stale.
+      return {
+        box: 'understood',
+        seen,
+        lastSeen,
+        confirmedOn: later(state.confirmedOn, evidence.day),
+      };
     }
 
     default:

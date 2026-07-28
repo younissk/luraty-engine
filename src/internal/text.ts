@@ -121,7 +121,6 @@ const LATIN_FOLD: Readonly<Record<string, string>> = {
 // noting its suggested fix is `Intl.Segmenter` — which this package bans outright, because Hermes
 // has no ICU. The rule is right in general and wrong for this file.
 const PUNCTUATION = new Set([
-  // eslint-disable-next-line @typescript-eslint/no-misused-spread -- see note above
   ...'.,;:!?"`()[]{}<>«»„“”‘’–—-_/\\|@#$%^&*+=~',
   '،', // ، Arabic comma
   '؛', // ؛ Arabic semicolon
