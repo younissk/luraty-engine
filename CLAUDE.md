@@ -203,14 +203,20 @@ npm run mutate     # minutes, not seconds — an audit, never a gate
 Deliberately **not** in `npm run check`, and with no score threshold: a hard number is one that
 eventually gets lowered so a commit can land. Read the survivors, fix what matters, move on.
 
-Score today **84.96%** (757 of 891) — `coverage.ts` 97, `record.ts` 96, `ids.ts` 95, `profile.ts`
-92, `plan.ts` 88, `text.ts` 86, `persist.ts` 83, `checkPack.ts` 79, `pack.ts` 77, `assert.ts` 0.
+Score today **86.54%** (1,012 of 1,174), measured on wire v3 — `unit.ts` 100, `coverage.ts` 97,
+`ids.ts` 95, `plan.ts` 93, `summary.ts` 91, `profile.ts` 91, `record.ts` 89 (96 of what is covered),
+`text.ts` 86, `persist.ts` 83, `checkPack.ts` 79, `pack.ts` 77, `assert.ts` 0.
+
+`plan.ts` is the file worth reading twice. v3 roughly tripled it and its FIRST reading was **80.5%**
+with 30 survivors, down from 88 — the new code (the deferred pass, the claim anchor, the two
+reporting counters) was under-pinned and nothing else in the suite said so. They clustered for one
+reason: most of the new behaviour is only OBSERVABLE under a condition the ordinary tests do not set
+up. The deferred pass needs the cap to bind AND spare capacity; `reassess.claimsStanding` is only
+read on the `'due'` arm; a boundary constant needs a fixture sitting exactly on it. `plan.edges.test.ts`
+was written mutant-by-mutant and took it to **92.7%**. That is what this lane is for.
 
 `assert.ts` at zero is honest: `assertNever`'s body is unreachable while the types are truthful, so
 nothing can pin its message. Do not "fix" it by asserting on an exception no correct program throws.
-
-⚠️ **THE SCORE ABOVE IS FROM BEFORE WIRE v3 and has not been re-measured on the new shape.** Treat
-it as the last known reading, not as today's.
 
 ⚠️ **THE NUMBER WAS OVERSTATED BEFORE, AND UNDERSTATED FOR TWO FILES — read this before trusting a
 future one.** `src/testing/packs.ts` used to `throw` when a fixture pack failed to build, at MODULE
