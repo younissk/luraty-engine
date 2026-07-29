@@ -207,14 +207,18 @@ describe('the public surface', () => {
       'STUCK_AFTER_LAPSES',
       'advanceTo',
       'checkPack',
+      'claimsFor',
       'coverage',
       'createPack',
       'createProfile',
       'day',
       'deserialize',
+      'exposuresFor',
       'hasMet',
       'hasStandingClaim',
       'isKnown',
+      'keysFor',
+      'learner',
       'parseUnitKey',
       'plan',
       'record',
@@ -223,6 +227,8 @@ describe('the public surface', () => {
       'unitKey',
       'unitState',
       'variety',
+      'vocabularyOf',
+      'wordsIn',
     ]);
   });
 

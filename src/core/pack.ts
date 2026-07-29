@@ -142,7 +142,43 @@ function buildRanks(frequency: string, normalize: readonly NormalizeStep[]): Map
  * a JSON file that a human wrote, possibly for a different version of this engine.
  */
 export function createPack(config: PackConfig, data: PackData): Decoded<LanguagePack> {
-  if (config.id.length === 0) return fail('pack has no id');
+  // ⚠️ THE SHAPE IS CHECKED BEFORE ANY FIELD IS READ, and leaving that out was a real bug.
+  //
+  // The rest of this function widens each field to `string` and checks it, on the correct argument
+  // that a JSON file a human wrote may not match the type. But it then reached straight into
+  // `config.tokenize.strategy` — so a config MISSING `tokenize` entirely threw
+  // `Cannot read properties of undefined (reading 'strategy')`.
+  //
+  // That is a raw TypeError on a host's app-launch path, from the function whose barrel comment
+  // promises "neither throws". Checking each leaf while assuming the branches exist is the most
+  // common way a parse-don't-validate door leaks; the guard has to come first.
+  // Probed through a LOOSE view rather than by narrowing `config` itself: a `v is Record<…>` guard
+  // would erase `PackConfig` for every line below, and the whole point is that the declared type is
+  // a claim about intent while this is a check on what is actually in memory.
+  // Widened all the way to `unknown` before anything is read, so each check is a real check. Probing
+  // through a partially-typed view instead makes eslint's `no-unnecessary-condition` correct to
+  // complain — it can see the declared type and concludes the guard is dead, which is exactly the
+  // reasoning that let this function reach into `config.tokenize.strategy` unguarded in the first
+  // place.
+  const anyConfig: unknown = config;
+  const anyData: unknown = data;
+
+  if (typeof anyConfig !== 'object' || anyConfig === null) {
+    return fail('pack config is not an object');
+  }
+  const c = anyConfig as { id?: unknown; tokenize?: unknown };
+  if (typeof c.id !== 'string' || c.id.length === 0) return fail('pack has no id');
+  if (typeof c.tokenize !== 'object' || c.tokenize === null) {
+    return fail('pack config has no "tokenize" section');
+  }
+  if (typeof (c.tokenize as { pattern?: unknown }).pattern !== 'string') {
+    return fail('pack config has no "tokenize.pattern"');
+  }
+
+  if (typeof anyData !== 'object' || anyData === null) return fail('pack data is not an object');
+  if (typeof (anyData as { frequency?: unknown }).frequency !== 'string') {
+    return fail('pack data has no "frequency" string');
+  }
 
   // Widened to `string` on purpose. The type says this can only be 'regex', but the value came out
   // of a JSON file that a human wrote — possibly against a different version of this engine — so

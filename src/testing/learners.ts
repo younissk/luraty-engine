@@ -5,6 +5,7 @@ import { unitKey, type Day, type Variety } from '../model/ids.js';
 import type { LanguagePack, Lemma } from '../model/pack.js';
 import type { Profile } from '../model/profile.js';
 import { KNOWN_AT_STRENGTH } from '../model/unit.js';
+import { vocabularyOf } from '../core/bulk.js';
 
 /**
  * Building learners to simulate against.
@@ -118,19 +119,15 @@ export function learner(spec: LearnerSpec): Profile {
 
 // ── Archetypes ──────────────────────────────────────────────────────────────────────────────────
 
-/** Every lemma the pack's frequency list knows, in rank order. */
-export function vocabularyOf(pack: LanguagePack, frequency: string): readonly Lemma[] {
-  const out: Lemma[] = [];
-  const seen = new Set<Lemma>();
-  for (const word of frequency.split(/\s+/)) {
-    if (word.length === 0) continue;
-    const lemma = pack.key(word);
-    if (lemma.length === 0 || seen.has(lemma)) continue;
-    seen.add(lemma);
-    out.push(lemma);
-  }
-  return out;
-}
+/**
+ * Every lemma the pack's frequency list knows, in rank order.
+ *
+ * ⚠️ Re-exported from `core/bulk.ts`, where it is now PUBLIC. It lived here and only here for
+ * months, so the identical loop was hand-written again in `demo.ts`, twice in the learner CLI, and
+ * in two pack build scripts. A helper written five times and published zero times is the API
+ * missing it.
+ */
+export { vocabularyOf };
 
 /**
  * Suffixes that mark a German word as formal, abstract or Latinate.

@@ -20,26 +20,46 @@ what to teach, when, how an answer is judged, what happens next. It runs unchang
 ## Thirty seconds
 
 ```ts
-import { coverage, createProfile, day, plan, record, unitKey, variety } from '@luraty/engine';
+import { createProfile, day, learner, variety } from '@luraty/engine';
+import { de, vocabulary } from '@luraty/pack-de'; // already built — no createPack, no file reading
 
-const v = variety('de')!; //                        which variety this knowledge is in
-let profile = createProfile('de', day(0)!); //      a learner who has met nothing
+const v = variety('de')!; // which variety this knowledge is in
+const d1 = day(1)!; //      day 0 is reserved as "never" — days start at 1
 
-// 1. The engine decides. No pack, no clock, no database — just the profile and the day.
-const session = plan(profile, { day: day(1)!, maxItems: 12 });
+// A learner who has met nothing, wrapped in a handle so you stop repeating pack/variety/direction.
+let anna = learner(createProfile('de', d1), { pack: de, variety: v, vocabulary });
 
-// 2. The host fetches exercises for `session.content.units`, shows them, and reports back.
-profile = record(profile, [
-  { unit: unitKey('recognise', v, 'haus'), outcome: 'known', tested: true, day: day(1)! },
-]);
+// 1. PLACEMENT. However you asked, the answer is a list of claims — she says she knows these,
+//    and nobody has checked. This is what stops day one being an empty screen.
+anna = anna.claim(vocabulary.slice(0, 400), d1);
 
-// 3. How hard is this text for them now? `pack` comes from the host — see below.
-coverage(profile, pack, {
-  text: 'Der Mann geht aus dem Haus.',
-  variety: v,
-  direction: 'recognise',
-});
+// 2. The engine decides. `maxNew` is required: it caps how much NEW material may crowd out review.
+const session = anna.plan({ day: d1, maxItems: 12, maxNew: 4 });
+//    Every item carries a `why`: 'verify' (she claimed it), 'new', 'relearn', or 'review'.
+//    Show them differently — calling a word she grew up hearing "new" is the failure to avoid.
+
+// 3. She answers. This is the only thing that can raise a word's rung.
+anna = anna.answer('haus', 'known', d1);
+
+// 4. How hard is this text for her now?
+const hard = anna.coverage('Der Mann geht aus dem Haus.');
+if (hard.kind === 'measured' && hard.band === 'in-band') {
+  // just right: dense enough to learn from, sparse enough to read
+}
+
+// 5. Save the profile, and snapshot the numbers you want to show her later.
+storage.set(anna.save());
+history.append(anna.summary()); // known · claims confirmed / refuted / still unchecked
 ```
+
+Every method above delegates to a free function that is still exported, and `anna.profile` is
+always reachable — the handle is a convenience, never a wall.
+
+**The full loop, with a comment on every line, is
+[`packs/de/src/example.test.ts`](../packs/de/src/example.test.ts).** It is a test rather than a
+snippet so it cannot rot: it compiles against this engine and runs against the real 10,000-word
+German pack on every `npm run check`. This README once shipped a quickstart that had not compiled
+for three commits, which is why.
 
 Watch it run for thirty days: `npm run demo`.
 
@@ -56,7 +76,7 @@ so that can't happen twice.
 ## The shape
 
 ```ts
-plan(profile, { day, maxItems }); //          → a session, plus a description of content it needs
+plan(profile, { day, maxItems, maxNew }); //  → a session, plus a description of content it needs
 record(profile, evidence); //                 → a new profile
 coverage(profile, pack, query); //            → how much of this text they know
 serialize(profile) / deserialize(text); //    → persistence, as pure total functions

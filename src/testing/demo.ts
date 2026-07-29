@@ -3,10 +3,11 @@ import { plan } from '../core/plan.js';
 import { advanceTo, createProfile } from '../core/profile.js';
 import { record } from '../core/record.js';
 import type { Evidence } from '../model/evidence.js';
-import { unitKey, variety, type Day, type UnitKey } from '../model/ids.js';
-import type { LanguagePack, Lemma } from '../model/pack.js';
+import { variety, type Day, type UnitKey } from '../model/ids.js';
+import type { LanguagePack } from '../model/pack.js';
 import type { Profile } from '../model/profile.js';
 import { isKnown } from '../model/unit.js';
+import { exposuresFor, wordsIn } from '../core/bulk.js';
 
 import {
   beginner,
@@ -171,14 +172,7 @@ export function runDemo(
 
   // The vocabulary IS the passage — every distinct lemma the pack finds in it. Nothing is
   // hand-listed, so the token distribution is the language's own.
-  const lemmas: Lemma[] = [];
-  const seen = new Set<Lemma>();
-  for (const surface of pack.split(course.passage)) {
-    const lemma = pack.key(surface);
-    if (lemma.length === 0 || seen.has(lemma)) continue;
-    seen.add(lemma);
-    lemmas.push(lemma);
-  }
+  const lemmas = wordsIn(pack, course.passage);
   const tokens = pack.split(course.passage).length;
 
   say('');
@@ -222,11 +216,7 @@ export function runDemo(
 
     // 3. Reading mints a unit for anything not met yet. This is the intake path — and it never
     //    promotes anything, because an `exposure` cannot.
-    const read: Evidence[] = lemmas.map((lemma) => ({
-      kind: 'exposure' as const,
-      unit: unitKey('recognise', v, lemma),
-      day: D(d),
-    }));
+    const read = exposuresFor('recognise', v, lemmas, D(d));
 
     profile = record(profile, [...answered, ...read]);
 

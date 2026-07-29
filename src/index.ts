@@ -107,6 +107,20 @@ export {
   STUCK_AFTER_LAPSES,
 } from './core/plan.js';
 
+// ── Doing one thing to many words ───────────────────────────────────────────────────────────────
+// Pure transforms every host writes on day one. They are here because the same "split the frequency
+// list, key each word, drop empties and duplicates" loop was hand-written FIVE times in this repo
+// before it was published once.
+export { claimsFor, exposuresFor, keysFor, vocabularyOf, wordsIn } from './core/bulk.js';
+
+// ── The fluent handle, entirely optional ────────────────────────────────────────────────────────
+// Adds no power: every method delegates to a function above, and `learner.profile` is always
+// reachable. It exists because purity is load-bearing and FREE FUNCTIONS ARE NOT — a host should not
+// have to repeat `direction`, `variety` and `pack` at every call site to get the pure core's
+// benefits.
+export type { Learner, LearnerContext } from './core/learner.js';
+export { learner } from './core/learner.js';
+
 // ── Reporting ───────────────────────────────────────────────────────────────────────────────────
 // The engine stores no history. `summarize` is a fixed-size snapshot the HOST persists and diffs —
 // "can she read more than in March?" is a subtraction of two of these. See `Summary` for why the
