@@ -1,6 +1,6 @@
 import type { Coverage, CoverageQuery } from '../model/coverage.js';
 import type { Evidence, Outcome } from '../model/evidence.js';
-import { unitKey, type Day, type Direction, type UnitKey, type Variety } from '../model/ids.js';
+import type { Day, Direction, UnitKey, Variety } from '../model/ids.js';
 import type { LanguagePack } from '../model/pack.js';
 import type { Profile } from '../model/profile.js';
 import type { PlanOptions, Session } from '../model/session.js';
@@ -159,9 +159,27 @@ export function learner(profile: Profile, context: LearnerContext): Learner {
   // words is not free, and a host that always passes its own `priority` should never pay for it.
   let priorityCache: readonly UnitKey[] | undefined;
   const defaultPriority = (): readonly UnitKey[] => {
-    priorityCache ??= keysFor(direction, variety, context.vocabulary ?? []);
+    priorityCache ??= keysFor(direction, variety, canonical(context.vocabulary ?? []));
     return priorityCache;
   };
+
+  /**
+   * Put a host's words into the pack's canonical form before they become unit keys.
+   *
+   * ⚠️ **THIS IS THE WHOLE REASON THE HANDLE CARRIES A PACK.** The free functions cannot do it —
+   * `keysFor` takes no pack, so its contract is "hand me lemmas" and its callers pass the output of
+   * `vocabularyOf`. The facade has the pack, so a host writing the obvious thing must not be
+   * silently wrong.
+   *
+   * And it was. `answer('Schlüssel', …)` wrote to `recognise:de:schlüssel`, while `read()`,
+   * `coverage()` and every lemma from `vocabularyOf` address `recognise:de:schluessel` — the German
+   * pack transliterates umlauts. Two units, one word, no error, no failing test: the shipped example
+   * only ever used words identical to their own keys (`haus`, `verordnung`), so nothing caught it.
+   *
+   * Safe for already-keyed input because `key` is idempotent — a pack property law
+   * (`pack.property.test.ts`), and verified across all 9,981 lemmas of the real German pack.
+   */
+  const canonical = (words: readonly string[]): readonly string[] => words.map((w) => pack.key(w));
 
   return {
     profile,
@@ -173,18 +191,34 @@ export function learner(profile: Profile, context: LearnerContext): Learner {
 
     answer: (word, outcome, day) =>
       next(
-        record(profile, [
-          { kind: 'retrieval', unit: unitKey(direction, variety, word), outcome, day },
-        ]),
+        record(
+          profile,
+          keysFor(direction, variety, canonical([word])).map((unit) => ({
+            kind: 'retrieval',
+            unit,
+            outcome,
+            day,
+          })),
+        ),
       ),
 
-    claim: (words, day) => next(record(profile, claimsFor(direction, variety, words, day))),
+    claim: (words, day) =>
+      next(record(profile, claimsFor(direction, variety, canonical(words), day))),
 
     read: (text, day) =>
       next(record(profile, exposuresFor(direction, variety, wordsIn(pack, text), day))),
 
     help: (word, day) =>
-      next(record(profile, [{ kind: 'help', unit: unitKey(direction, variety, word), day }])),
+      next(
+        record(
+          profile,
+          keysFor(direction, variety, canonical([word])).map((unit) => ({
+            kind: 'help',
+            unit,
+            day,
+          })),
+        ),
+      ),
 
     on: (day) => next(advanceTo(profile, day)),
 

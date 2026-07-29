@@ -124,6 +124,52 @@ describe('the escape hatch', () => {
   });
 });
 
+describe('the handle canonicalises words through its pack', () => {
+  it('addresses the same unit whether the host types the surface form or the lemma', () => {
+    // ⚠️ A REAL SILENT DEFECT, found by driving the demo by hand rather than by any test. The German
+    // pack transliterates umlauts, so `key('Schlüssel')` is `'schluessel'`. Before this, `answer()`
+    // branded the raw string and wrote `recognise:de:schlüssel`, while `read()`, `coverage()` and
+    // every lemma out of `vocabularyOf` addressed `recognise:de:schluessel`.
+    //
+    // Two units for one word, no error, no failing test — because the shipped example only ever used
+    // words that happen to equal their own keys (`haus`, `verordnung`).
+    const surface = learner(createProfile('de', D(1)), ctx).answer('HAUS', 'known', D(1));
+    const lemma = learner(createProfile('de', D(1)), ctx).answer('haus', 'known', D(1));
+    expect(surface.profile).toEqual(lemma.profile);
+    expect(surface.profile.units[unitKey('recognise', DE, 'haus')]).toBeDefined();
+    expect(Object.keys(surface.profile.units)).toHaveLength(1);
+  });
+
+  it('agrees with what read() and coverage() address', () => {
+    // The three paths that all name the same word must land on one key. `read()` always keyed
+    // through the pack; the other two did not, and that disagreement was invisible.
+    const viaAnswer = learner(createProfile('de', D(1)), ctx).answer('Haus', 'known', D(1));
+    const viaRead = learner(createProfile('de', D(1)), ctx).read('Haus', D(1));
+    const viaClaim = learner(createProfile('de', D(1)), ctx).claim(['Haus'], D(1));
+    expect(Object.keys(viaAnswer.profile.units)).toEqual(Object.keys(viaRead.profile.units));
+    expect(Object.keys(viaClaim.profile.units)).toEqual(Object.keys(viaRead.profile.units));
+  });
+
+  it('is a no-op on already-keyed input, so the free-function equivalence still holds', () => {
+    // Keying is only safe to do here because `key` is idempotent — a pack property law. If it were
+    // not, this facade would quietly disagree with `record` + `claimsFor` for every caller who
+    // correctly passed lemmas.
+    const viaFacade = learner(createProfile('de', D(1)), ctx).claim(WORDS, D(1)).profile;
+    const viaFree = record(
+      createProfile('de', D(1)),
+      WORDS.map((w) => ({ kind: 'claim' as const, unit: unitKey('recognise', DE, w), day: D(1) })),
+    );
+    expect(viaFacade).toEqual(viaFree);
+  });
+
+  it('drops a word the pack cannot key, rather than minting an unaddressable unit', () => {
+    // `keysFor`'s empty guard, now reached from `answer` and `help` too. A unit keyed `"recognise:de:"`
+    // is one no scope in `summarize` can see and no `parseUnitKey` accepts.
+    const punctuation = learner(createProfile('de', D(1)), ctx).answer('!!!', 'known', D(1));
+    expect(Object.keys(punctuation.profile.units)).toHaveLength(0);
+  });
+});
+
 describe('direction', () => {
   it('addresses the skill the handle was built for, and no other', () => {
     const speak = learner(createProfile('de', D(1)), { ...ctx, direction: 'produce' }).answer(
