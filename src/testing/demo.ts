@@ -131,9 +131,11 @@ export type PackOverride = {
 /**
  * Who is sitting down to use this.
  *
- * `beginner` is not just one option among three — it is the ONLY state a real learner can be in
- * today, because placement is not built. The other two are fabricated histories, which is fine for
- * a simulation and would be a lie in the product.
+ * ⚠️ This used to say `beginner` was the ONLY state a real learner could be in, because placement
+ * was not built. That stopped being true when `claim` evidence landed: a placed learner is now a
+ * state a product can honestly produce, and `placedSpeaker` in `learners.ts` is what it looks like.
+ * The other two archetypes are still FABRICATED histories — fine for a simulation, a lie in a
+ * product — and that distinction is the one worth keeping straight.
  */
 export type Who = 'beginner' | 'heritage' | 'classroom';
 
@@ -181,7 +183,7 @@ export function runDemo(
       ? 'a heritage speaker'
       : who === 'classroom'
         ? 'a classroom learner'
-        : 'a beginner (the only state placement-free code can produce)';
+        : 'a beginner (nothing known, nothing claimed)';
   say(`  ${pack.id} — ${whoLabel}, ${String(days)} days.`);
   say(`  ${String(tokens)} running tokens, ${String(lemmas.length)} distinct words.`);
   say('  Seeded: same run every time, on every runtime.');
