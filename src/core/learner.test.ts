@@ -170,6 +170,67 @@ describe('the handle canonicalises words through its pack', () => {
   });
 });
 
+describe('help() — the method the mutation lane found nobody called', () => {
+  // ⚠️ EVERY MUTANT IN `help` WAS `NoCoverage`, and `help: () => undefined` SURVIVED. The whole
+  // method could be deleted and all 432 tests stayed green. It reached the barrel, the docs and an
+  // end-to-end example without one engine test ever invoking it.
+  const proven = (): ReturnType<typeof learner> =>
+    learner(createProfile('de', D(1)), ctx)
+      .answer('haus', 'known', D(1))
+      .answer('haus', 'known', D(2))
+      .answer('haus', 'known', D(3));
+
+  it('costs exactly one rung', () => {
+    const before = proven();
+    const after = before.help('haus', D(4));
+    const key = unitKey('recognise', DE, 'haus');
+    expect(before.profile.units[key]?.strength).toBe(3);
+    expect(after.profile.units[key]?.strength).toBe(2);
+  });
+
+  it('is not a lapse — asking for the gloss is the right thing to do', () => {
+    // The distinction wire v3 exists to draw: tapping a gloss is information, not failure. If this
+    // ever counts as a lapse, `stuck` starts naming words the learner was simply careful about.
+    const after = proven().help('haus', D(4));
+    expect(after.profile.units[unitKey('recognise', DE, 'haus')]?.lapses).toBe(0);
+  });
+
+  it('matches the free-function path exactly', () => {
+    const viaFacade = proven().help('haus', D(4)).profile;
+    const viaFree = record(proven().profile, [
+      { kind: 'help', unit: unitKey('recognise', DE, 'haus'), day: D(4) },
+    ]);
+    expect(viaFacade).toEqual(viaFree);
+  });
+
+  it('canonicalises its word like the other writers', () => {
+    expect(proven().help('HAUS', D(4)).profile).toEqual(proven().help('haus', D(4)).profile);
+  });
+});
+
+describe('coverage() forwards the options it is given', () => {
+  it('honours `ignore`, which a dropped-options bug would silently disable', () => {
+    // ⚠️ `...(options ?? {})` mutated to `...(options && {})` SURVIVED: with options PRESENT that
+    // spreads `{}` and throws the caller's query away. Nothing here passed options, so nothing saw
+    // it — and `ignore` silently stopping work is not a crash, it is names counted as unknown words,
+    // which drags a passage from in-band to too-hard and quietly makes every reading harder.
+    const text = 'Anna geht aus dem Haus. Anna trinkt Wasser und Anna isst Brot heute in Berlin.';
+    const anna = learner(createProfile('de', D(1)), ctx).claim(WORDS, D(1));
+
+    const withIgnore = anna.coverage(text, { ignore: ['Anna'] });
+    const without = anna.coverage(text);
+    expect(withIgnore).not.toEqual(without);
+    expect(withIgnore).toEqual(
+      coverage(anna.profile, germanPack, {
+        text,
+        variety: DE,
+        direction: 'recognise',
+        ignore: ['Anna'],
+      }),
+    );
+  });
+});
+
 describe('direction', () => {
   it('addresses the skill the handle was built for, and no other', () => {
     const speak = learner(createProfile('de', D(1)), { ...ctx, direction: 'produce' }).answer(

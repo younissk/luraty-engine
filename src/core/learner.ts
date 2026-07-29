@@ -159,6 +159,11 @@ export function learner(profile: Profile, context: LearnerContext): Learner {
   // words is not free, and a host that always passes its own `priority` should never pay for it.
   let priorityCache: readonly UnitKey[] | undefined;
   const defaultPriority = (): readonly UnitKey[] => {
+    // ⚠️ The `?? []` here is the one surviving mutant in this file (97.3%), and it is left alive on
+    // purpose. Stryker replaces the empty array with a one-element list; `priority` only reorders
+    // units that are ALREADY in the profile, so a key matching nothing changes no output. It is an
+    // equivalent mutant, and the way to "kill" it would be to assert on the cache rather than on
+    // behaviour — a test that pins the implementation and nothing a learner could notice.
     priorityCache ??= keysFor(direction, variety, canonical(context.vocabulary ?? []));
     return priorityCache;
   };
