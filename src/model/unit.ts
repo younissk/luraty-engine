@@ -1,4 +1,4 @@
-import type { Day } from './ids.js';
+import { NEVER, type Day } from './ids.js';
 
 /**
  * What the engine believes about one unit, in one direction and variety.
@@ -223,15 +223,15 @@ export type UnitState = {
  * A frozen shared value rather than a factory: it is deeply `readonly`, so there is nothing to
  * copy-protect, and one instance means `unitState()` on a large profile allocates nothing.
  */
-export const UNMET: UnitState = {
+export const UNMET: UnitState = Object.freeze({
   seen: 0,
-  lastSeen: 0 as Day,
-  lastAsked: 0 as Day,
-  lastProven: 0 as Day,
-  prior: { kind: 'none' },
+  lastSeen: NEVER,
+  lastAsked: NEVER,
+  lastProven: NEVER,
+  prior: Object.freeze({ kind: 'none' as const }),
   strength: 0,
   lapses: 0,
-};
+});
 
 /**
  * Is this unit known?
@@ -254,5 +254,5 @@ export function isKnown(state: UnitState): boolean {
  * split computable from present state with no history at all.
  */
 export function hasStandingClaim(state: UnitState): boolean {
-  return state.prior.kind === 'claimed' && state.lastAsked === 0;
+  return state.prior.kind === 'claimed' && state.lastAsked === NEVER;
 }

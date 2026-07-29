@@ -98,7 +98,7 @@ describe('regressions', () => {
     // 37 days ago. Invisible until something does interval arithmetic on these fields, at which
     // point it looks like a scheduling bug from a commit months earlier.
     const k: UnitKey = unitKey('recognise', AR, 'سوق');
-    let p = createProfile('ar', D(0));
+    let p = createProfile('ar', D(1));
     p = record(p, [
       { kind: 'retrieval', unit: k, outcome: 'known', day: D(39) },
       { kind: 'retrieval', unit: k, outcome: 'known', day: D(40) },

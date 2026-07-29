@@ -35,7 +35,7 @@ const arbEvidence: fc.Arbitrary<Evidence> = fc.oneof(
 
 const arbProfile = fc
   .array(arbEvidence, { maxLength: 60 })
-  .map((evidence) => record(createProfile('ar', 0 as Day), evidence));
+  .map((evidence) => record(createProfile('ar', 1 as Day), evidence));
 
 describe('persistence — laws', () => {
   it('round-trips: deserialize(serialize(p)) equals p', () => {
@@ -64,8 +64,8 @@ describe('persistence — laws', () => {
   it('is canonical: the same state serializes the same way regardless of how it was built', () => {
     fc.assert(
       fc.property(fc.array(arbEvidence, { maxLength: 40 }), (evidence) => {
-        const batched = record(createProfile('ar', 0 as Day), evidence);
-        const oneByOne = evidence.reduce((p, e) => record(p, [e]), createProfile('ar', 0 as Day));
+        const batched = record(createProfile('ar', 1 as Day), evidence);
+        const oneByOne = evidence.reduce((p, e) => record(p, [e]), createProfile('ar', 1 as Day));
         expect(serialize(oneByOne)).toBe(serialize(batched));
       }),
     );

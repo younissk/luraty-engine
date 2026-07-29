@@ -22,7 +22,7 @@ const WORDS = ['سوق', 'كتاب', 'مدرسة', 'بيت', 'ماء'];
 const UNIVERSE = { variety: AR, words: WORDS } as const;
 const arbEvidence = anyEvidence(UNIVERSE);
 
-const fresh = () => createProfile('ar', 0 as Day);
+const fresh = () => createProfile('ar', 1 as Day);
 
 describe('record — laws', () => {
   it('is a fold: one at a time equals all at once', () => {

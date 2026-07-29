@@ -51,7 +51,7 @@ describe('the profile is deeply readonly', () => {
     // engine returns new values instead of relying on callers to behave. A first draft of this test
     // asserted `p.day` was still 0 afterwards and failed, because it was testing a guarantee
     // TypeScript does not make.
-    const p: Profile = engine.createProfile('ar', 0 as Day);
+    const p: Profile = engine.createProfile('ar', 1 as Day);
 
     // @ts-expect-error units is readonly
     p.units = {};
@@ -133,7 +133,7 @@ describe('record takes a readonly array', () => {
     // Callers lose nothing — a mutable array is assignable to a readonly one — while `evidence.push`
     // inside the engine becomes a compile error.
     const evidence: Evidence[] = [];
-    expectTypeOf(engine.record).toBeCallableWith(engine.createProfile('ar', 0 as Day), evidence);
+    expectTypeOf(engine.record).toBeCallableWith(engine.createProfile('ar', 1 as Day), evidence);
   });
 });
 

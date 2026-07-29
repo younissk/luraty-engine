@@ -46,7 +46,7 @@ const anyProfile = fc
         ? { kind: 'retrieval', unit, outcome: r.outcome, day: D(r.day) }
         : { kind: r.kind, unit, day: D(r.day) };
     });
-    return record(createProfile('ar', D(0)), evidence);
+    return record(createProfile('ar', D(1)), evidence);
   });
 
 // ⚠️ `maxNew` MUST be generated. It is a required option, so omitting it here would not merely
@@ -166,7 +166,7 @@ describe('plan laws', () => {
         fc.integer({ min: 1, max: 40 }),
         fc.integer({ min: 1, max: 8 }),
         (poolSize, take) => {
-          let profile = createProfile('ar', D(0));
+          let profile = createProfile('ar', D(1));
           const pool: UnitKey[] = [];
           for (let i = 0; i < poolSize; i++) {
             const unit = unitKey('recognise', V, `w${String(i)}`);

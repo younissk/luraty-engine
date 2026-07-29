@@ -1,5 +1,5 @@
 import { COVERAGE_BAND } from '../model/coverage.js';
-import type { Day, UnitKey } from '../model/ids.js';
+import { NEVER, type Day, type UnitKey } from '../model/ids.js';
 import type { Profile } from '../model/profile.js';
 import type {
   ContentRequest,
@@ -67,7 +67,7 @@ export const STUCK_AFTER_LAPSES = 6;
  * when it was genuinely last handled.
  */
 function attendedOn(state: UnitState): Day {
-  const claimed = state.prior.kind === 'claimed' ? state.prior.on : (0 as Day);
+  const claimed = state.prior.kind === 'claimed' ? state.prior.on : NEVER;
   return state.lastAsked > claimed ? state.lastAsked : claimed;
 }
 
@@ -79,10 +79,10 @@ function attendedOn(state: UnitState): Day {
  * is mid-acquisition rather than up for review.
  */
 function whyFor(state: UnitState): Why {
-  if (state.lastAsked === 0) {
+  if (state.lastAsked === NEVER) {
     return state.prior.kind === 'claimed' ? 'verify' : 'new';
   }
-  return state.lastProven === 0 ? 'relearn' : 'review';
+  return state.lastProven === NEVER ? 'relearn' : 'review';
 }
 
 /**
@@ -160,7 +160,7 @@ export function plan(profile: Profile, options: PlanOptions): Session {
   const stuck: UnitKey[] = [];
   // For the reassessment trigger. `0` if nothing has ever been proven, which reads as "never" and
   // makes `daysSinceProven` fall out as the full span since the epoch.
-  let lastProvenAnywhere = 0 as Day;
+  let lastProvenAnywhere = NEVER;
   let claimsStanding = 0;
 
   for (const unit of Object.keys(profile.units) as UnitKey[]) {
@@ -235,7 +235,7 @@ export function plan(profile: Profile, options: PlanOptions): Session {
   });
 
   const items = take(due, maxItems, maxNew);
-  const named = take(due, maxItems * OVER_ASK, maxNew * OVER_ASK);
+  const named = nameWithSpares(due, items, maxItems * OVER_ASK, maxNew * OVER_ASK);
 
   const content: ContentRequest = {
     // Named beyond what the session uses, so a host missing an exercise loses that word rather than
@@ -253,7 +253,13 @@ export function plan(profile: Profile, options: PlanOptions): Session {
     items,
     content,
     reassess: reassessment(day, lastProvenAnywhere, claimsStanding),
-    stuck,
+    // ⚠️ SORTED, and not for tidiness. `Object.keys` returns insertion order, and a profile built by
+    // replaying evidence has a DIFFERENT insertion order from the same profile loaded from storage —
+    // `serialize` writes its units sorted, so `deserialize` inserts them sorted. Unsorted, two
+    // value-identical profiles produced `stuck` lists in different orders, so a session was not
+    // stable across an app restart. `items` was immune because its comparator is total; this was
+    // appended in iteration order and was not. Same total order, on UTF-16 code units.
+    stuck: stuck.sort((a, b) => (a < b ? -1 : 1)),
   };
 }
 
@@ -310,6 +316,44 @@ function take(due: readonly SessionItem[], limit: number, newLimit: number): Ses
 }
 
 /**
+ * The session, then the spares — in that order.
+ *
+ * ⚠️ **`content.units` MUST BEGIN WITH `items`, and getting that wrong was a real defect.** The
+ * documented contract is that *"a host takes the first `maxItems` it can actually build"*, so any
+ * prefix of this list has to agree with the session it accompanies.
+ *
+ * The obvious implementation — re-running the selection with both limits multiplied by
+ * {@link OVER_ASK} — does not. New material scores the maximum possible wait, so it sorts to the
+ * head; scaling the cap admits `maxNew * OVER_ASK` new words *before* any review is reachable.
+ * Measured on a 160-unit profile at `maxItems: 20, maxNew: 5`: the session was 5 new / 15 review,
+ * while the first 20 named units were **15 new / 5 review**. A host following the documented
+ * contract would have got a session nothing in the engine ever chose.
+ *
+ * So the chosen items lead, and the spares follow in comparator order, still capped.
+ */
+function nameWithSpares(
+  due: readonly SessionItem[],
+  items: readonly SessionItem[],
+  limit: number,
+  newLimit: number,
+): SessionItem[] {
+  const chosen = new Set<UnitKey>(items.map((item) => item.unit));
+  const named = [...items];
+  let introduced = items.filter((item) => item.why === 'new').length;
+
+  for (const item of due) {
+    if (named.length >= limit) break;
+    if (chosen.has(item.unit)) continue;
+    if (item.why === 'new') {
+      if (introduced >= newLimit) continue;
+      introduced += 1;
+    }
+    named.push(item);
+  }
+  return named;
+}
+
+/**
  * Whether it is time to re-measure. See {@link Reassess}.
  *
  * A profile that has never proven anything reads as `daysSinceProven: day` — the full span since the
@@ -317,6 +361,11 @@ function take(due: readonly SessionItem[], limit: number, newLimit: number): Ses
  * never. That is the case the trigger exists for.
  */
 function reassessment(day: Day, lastProven: Day, claimsStanding: number): Reassess {
+  // ⚠️ CHECKED FIRST, and it is not the same question as "is it overdue". With nothing ever proven
+  // there is no span to measure FROM — `day - NEVER` is the host's raw day number, which for a
+  // Unix-day epoch reads as twenty thousand days of neglect on a profile created this morning.
+  if (lastProven === NEVER) return { kind: 'never-measured', claimsStanding };
+
   const daysSinceProven = Math.max(0, day - lastProven);
   if (daysSinceProven >= REASSESS_AFTER_DAYS) {
     return { kind: 'due', daysSinceProven, claimsStanding };

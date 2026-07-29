@@ -28,7 +28,7 @@ function ev(unit: UnitKey, outcome: 'known' | 'unknown', tested: boolean, d: num
     : { kind: 'help', unit, day: D(d) };
 }
 
-const fresh = () => createProfile('ar', D(0));
+const fresh = () => createProfile('ar', D(1));
 
 describe('record', () => {
   it('starts a unit at rung zero when the learner asks for help with it', () => {
@@ -305,6 +305,24 @@ describe('lastProven — the scheduler anchor', () => {
     expect(s.seen).toBe(1);
     // And it buys no head start — one proof is one rung, claimed or not.
     expect(s.strength).toBe(1);
+  });
+
+  it('folds a re-claim to the LATER day, so re-placing cannot rewind the anchor', () => {
+    // `prior.on` is a max-fold like every date here. A learner re-placed at month six must not have
+    // her claims dated back to month one — the claim date is the scheduling anchor for anything
+    // still unchecked, so rewinding it would make a fresh placement look maximally overdue.
+    const forwards = record(fresh(), [
+      { kind: 'claim', unit: suuq, day: D(5) },
+      { kind: 'claim', unit: suuq, day: D(40) },
+    ]);
+    const backwards = record(fresh(), [
+      { kind: 'claim', unit: suuq, day: D(40) },
+      { kind: 'claim', unit: suuq, day: D(5) },
+    ]);
+    expect(unitState(forwards, suuq).prior).toEqual({ kind: 'claimed', on: 40 });
+    expect(unitState(backwards, suuq).prior).toEqual({ kind: 'claimed', on: 40 });
+    // Still not an encounter, however many times it is claimed.
+    expect(unitState(forwards, suuq).seen).toBe(0);
   });
 
   it('keeps a claim after it has been refuted, which is what makes the count reportable', () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { unitKey, variety, type Day } from '../model/ids.js';
 import { PROFILE_SCHEMA_VERSION } from '../model/wire.js';
-import { isKnown, KNOWN_AT_STRENGTH } from '../model/unit.js';
+import { isKnown, KNOWN_AT_STRENGTH, MAX_STRENGTH } from '../model/unit.js';
 
 import { deserialize, serialize } from './persist.js';
 import { advanceTo, createProfile, unitState } from './profile.js';
@@ -72,7 +72,7 @@ const D = (n: number): Day => n as Day;
 
 /** The exact sequence that produced both goldens. Changing it invalidates them. */
 function goldenProfile() {
-  let p = createProfile('ar', D(0));
+  let p = createProfile('ar', D(1));
   p = advanceTo(p, D(42));
   return record(p, [
     { kind: 'retrieval', unit: unitKey('recognise', AR, 'سوق'), outcome: 'known', day: D(1) },
@@ -258,5 +258,75 @@ describe('the migration chain', () => {
     if (loaded.ok) return;
     expect(loaded.error.kind).toBe('malformed');
     expect(loaded.error.message).toContain('recognise:ar-msa:x');
+  });
+
+  it('clamps a hand-edited v2 streak rather than minting a known unit from a learning one', () => {
+    // ⚠️ A DEFENCE THAT WAS DOCUMENTED AT LENGTH AND PINNED BY NOTHING. `MIGRATIONS[2]` maps
+    // `strength = min(streak, KNOWN_AT_STRENGTH - 1)`, and the comment explains the `min` is there
+    // so a hand-edited `streak: 9` cannot arrive as a verified-known word. A correct v2 could only
+    // ever write 0 or 1 — which is exactly why no golden reaches this branch, and why removing the
+    // `min` survived the whole suite.
+    const tampered =
+      '{"v":2,"language":"de","day":10,"units":[' +
+      '["recognise:de:haus",{"box":"learning","seen":1,"lastSeen":3,"streak":9,"lastProven":3}]' +
+      ']}';
+    const loaded = deserialize(tampered);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+
+    const haus = unitState(loaded.value, unitKey('recognise', variety('de')!, 'haus'));
+    expect(haus.strength).toBe(KNOWN_AT_STRENGTH - 1);
+    // The point of the clamp: a LEARNING unit must not become a KNOWN one by migrating.
+    expect(isKnown(haus)).toBe(false);
+  });
+
+  it('names an unreadable v2 unit rather than throwing at app launch', () => {
+    // The other documented defence: anything `MIGRATIONS[2]` cannot recognise is passed through
+    // untouched so `parseUnit` produces a `malformed` error CARRYING THE KEY — rather than this
+    // function throwing an unnamed exception on the app's launch path, where a learner cannot
+    // downgrade to escape it.
+    for (const broken of [
+      '{"v":2,"language":"de","day":1,"units":[["recognise:de:x",{"box":"learning","seen":1,"lastSeen":1}]]}',
+      '{"v":2,"language":"de","day":1,"units":[["recognise:de:x",{"box":"understood","seen":1,"lastSeen":1}]]}',
+      '{"v":2,"language":"de","day":1,"units":[["recognise:de:x",{"box":"sideways","seen":1,"lastSeen":1}]]}',
+    ]) {
+      const loaded = deserialize(broken);
+      expect(loaded.ok).toBe(false);
+      if (loaded.ok) continue;
+      expect(loaded.error.kind).toBe('malformed');
+      expect(loaded.error.message).toContain('recognise:de:x');
+    }
+  });
+
+  it('rejects a v3 blob whose rung is not a whole number, and clamps one that is too large', () => {
+    // The asymmetry `parseUnit` documents: corruption must be NAMED, but a profile written by a
+    // build whose ceiling was higher has to stay loadable — that is what lets `MAX_STRENGTH` be
+    // lowered after a sweep as a code change rather than a wire bump.
+    const withStrength = (v: string) =>
+      `{"v":3,"language":"de","day":1,"units":[["recognise:de:x",{"seen":1,"lastSeen":1,"lastAsked":1,"lastProven":1,"prior":null,"strength":${v},"lapses":0}]]}`;
+
+    expect(deserialize(withStrength('2.5')).ok).toBe(false);
+    expect(deserialize(withStrength('-1')).ok).toBe(false);
+
+    const tooHigh = deserialize(withStrength('99'));
+    expect(tooHigh.ok).toBe(true);
+    if (tooHigh.ok) {
+      expect(unitState(tooHigh.value, unitKey('recognise', variety('de')!, 'x')).strength).toBe(
+        MAX_STRENGTH,
+      );
+    }
+  });
+
+  it('refuses a v3 blob whose prior is neither null nor a day', () => {
+    // `undefined` is NOT accepted as "no claim": a missing field means the migration did not run,
+    // which is a different fact from "never claimed" and must not be rounded into it.
+    const withPrior = (v: string) =>
+      `{"v":3,"language":"de","day":1,"units":[["recognise:de:x",{"seen":1,"lastSeen":1,"lastAsked":1,"lastProven":1,${v}"strength":1,"lapses":0}]]}`;
+
+    expect(deserialize(withPrior('"prior":null,')).ok).toBe(true);
+    expect(deserialize(withPrior('"prior":7,')).ok).toBe(true);
+    expect(deserialize(withPrior('')).ok).toBe(false);
+    expect(deserialize(withPrior('"prior":"yes",')).ok).toBe(false);
+    expect(deserialize(withPrior('"prior":-1,')).ok).toBe(false);
   });
 });

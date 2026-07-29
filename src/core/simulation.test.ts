@@ -86,7 +86,7 @@ type Snapshot = { day: number; units: number; understood: number };
 
 function runNinetyDays(seed: number): { history: Snapshot[]; finalUnits: number } {
   const next = rng(seed);
-  let profile = createProfile('ar', 0 as Day);
+  let profile = createProfile('ar', 1 as Day);
   const history: Snapshot[] = [];
 
   for (let d = 1; d <= 90; d++) {
@@ -192,7 +192,7 @@ describe('ninety days', () => {
 
   it('separates the two varieties — MSA progress is not dialect progress', () => {
     // Diglossia, as an assertion. The same word in two varieties is two units, measured apart.
-    let profile = createProfile('ar', 0 as Day);
+    let profile = createProfile('ar', 1 as Day);
     const msa: UnitKey = unitKey('recognise', AR, 'كتاب');
     const dialect: UnitKey = unitKey('recognise', DIALECT, 'كتاب');
 
@@ -249,7 +249,7 @@ describe('the coverage band, as knowledge grows', () => {
    * the noise was tuned. This answers it with arithmetic.
    */
   function bandsAsWordsAreProven(): readonly string[] {
-    let profile = createProfile('ar', 0 as Day);
+    let profile = createProfile('ar', 1 as Day);
     const bands: string[] = [];
 
     for (const word of VOCAB) {
@@ -311,7 +311,7 @@ describe('the coverage band, as knowledge grows', () => {
    */
   it('reaches the band for a learner who practises, and does not get there smoothly', () => {
     const next = rng(42);
-    let profile = createProfile('ar', 0 as Day);
+    let profile = createProfile('ar', 1 as Day);
     const bands: string[] = [];
     let best = 0;
 

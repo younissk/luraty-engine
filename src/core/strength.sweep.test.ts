@@ -73,26 +73,49 @@ describe('the sweep model agrees with the real fold', () => {
   it('reproduces `record`s arithmetic, so the sweep is not measuring a different engine', async () => {
     // ⚠️ THE GUARD THAT MAKES THE REST OF THIS FILE MEAN ANYTHING. A closed-form model of code you
     // also wrote is worth nothing unless it is pinned to the code. Same sequence, both paths.
+    //
+    // ⚠️ AND IT MUST HIT BOTH SATURATION BOUNDS. The first version of this sequence peaked at rung 5
+    // and bottomed at rung 1, so neither `Math.min(ceiling, …)` nor `Math.max(0, …)` ever fired —
+    // the guard pinned the unclamped accumulation only, and a model whose ceiling disagreed with the
+    // engine's would still have passed. Verified below by asserting both bounds are reached.
     const { record } = await import('./record.js');
     const { createProfile } = await import('./profile.js');
     const outcomes: ('known' | 'unknown')[] = [
+      // Climb past the ceiling: eight successes against a ceiling of six.
       'known',
+      'known',
+      'known',
+      'known',
+      'known',
+      'known',
+      'known',
+      'known',
+      // Fall through the floor: five failures at −2 apiece from six.
+      'unknown',
+      'unknown',
+      'unknown',
+      'unknown',
+      'unknown',
+      // And back up, so the walk is not monotone in either direction.
       'known',
       'known',
       'unknown',
       'known',
-      'known',
-      'known',
-      'known',
-      'unknown',
-      'unknown',
     ];
 
     let rung = 0;
+    let hitCeiling = false;
+    let hitFloor = false;
     for (const outcome of outcomes) {
       const delta = outcome === 'known' ? SHIPPED.gain : -SHIPPED.miss;
-      rung = Math.min(SHIPPED.ceiling, Math.max(0, rung + delta));
+      const raw = rung + delta;
+      if (raw > SHIPPED.ceiling) hitCeiling = true;
+      if (raw < 0) hitFloor = true;
+      rung = Math.min(SHIPPED.ceiling, Math.max(0, raw));
     }
+    // The guard's own guard: a sequence that never saturates cannot pin the saturation.
+    expect(hitCeiling, 'sequence never reaches the ceiling').toBe(true);
+    expect(hitFloor, 'sequence never reaches the floor').toBe(true);
 
     const folded = record(
       createProfile('de', D(1)),
@@ -113,9 +136,20 @@ describe('sweeping the ceiling', () => {
     // the honest claim available: the value is not tuned, and it does not need to be.
     const at90 = [4, 5, 6, 7, 8].map((ceiling) => knownShare({ ...SHIPPED, ceiling }, 0.9));
     for (const share of at90) expect(share).toBeGreaterThan(0.9);
-    // Monotone in the ceiling — a higher ceiling means more buffer against a slip — and the spread
-    // across five settings is small.
-    expect(Math.max(...at90) - Math.min(...at90)).toBeLessThan(0.1);
+
+    // ⚠️ THE BOUND HERE WAS ONCE A TAUTOLOGY, and that is worth recording rather than quietly
+    // tightening. With every share already asserted above 0.9 and the metric bounded above by 1, the
+    // spread cannot exceed 0.0975 — so `< 0.1` was arithmetically guaranteed and asserted nothing.
+    // Measured spread is 0.04; the bound is set just above it, so it can actually fail.
+    expect(Math.max(...at90) - Math.min(...at90)).toBeLessThan(0.05);
+
+    // And monotone in the ceiling: more headroom means more buffer against a slip. This is the part
+    // the prose claimed and nothing checked.
+    for (let i = 1; i < at90.length; i++) {
+      expect(at90[i], `ceiling ${String(i + 4)} vs ${String(i + 3)}`).toBeGreaterThanOrEqual(
+        at90[i - 1] ?? 0,
+      );
+    }
   });
 
   it('keeps the known line strictly inside the ladder at every swept ceiling', () => {

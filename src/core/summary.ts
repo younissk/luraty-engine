@@ -1,5 +1,5 @@
 import { assertNever } from '../internal/assert.js';
-import { parseUnitKey, type Day, type UnitKey } from '../model/ids.js';
+import { NEVER, parseUnitKey, type UnitKey } from '../model/ids.js';
 import type { Profile } from '../model/profile.js';
 import type { Summary, SummaryScope } from '../model/summary.js';
 import { isKnown, MAX_STRENGTH, type UnitState } from '../model/unit.js';
@@ -12,17 +12,30 @@ import { STUCK_AFTER_LAPSES } from './plan.js';
  * @module
  */
 
-/** Does this unit fall inside the scope being summarised? */
+/**
+ * Does this unit fall inside the scope being summarised?
+ *
+ * ⚠️ **EVERY SCOPE PARSES THE KEY, INCLUDING `'all'`**, and the reason is a law rather than tidiness.
+ * `summarize` promises that the four per-skill scopes partition the profile exactly — nothing
+ * double-counted, nothing dropped. `unitKey(d, v, '')` mints `"recognise:fr:"`, which `parseUnitKey`
+ * rejects for having no word; `record` writes whatever key it is handed, so such a unit can reach a
+ * profile. If `'all'` counted it and no skill scope could, the partition would silently be off by
+ * one for every malformed key present.
+ *
+ * The alternative — having `'all'` return true unconditionally and calling the law approximate — was
+ * rejected: an unaddressable unit is not a unit anybody can act on, so counting it in a headline
+ * number is the worse error.
+ */
 function inScope(key: UnitKey, scope: SummaryScope): boolean {
+  const parts = parseUnitKey(key);
+  if (parts === undefined) return false;
   switch (scope.kind) {
     case 'all':
       return true;
     case 'skill': {
-      // Parsed rather than matched on a string prefix. A prefix test would need the caller's variety
-      // to be free of colons — true today by construction, and exactly the kind of invariant that
-      // stops being true quietly.
-      const parts = parseUnitKey(key);
-      if (parts === undefined) return false;
+      // Matched on the PARSED parts rather than a string prefix. A prefix test would need the
+      // caller's variety to be free of colons — true today by construction, and exactly the kind of
+      // invariant that stops being true quietly.
       return parts.direction === scope.direction && parts.variety === scope.variety;
     }
     default:
@@ -33,8 +46,8 @@ function inScope(key: UnitKey, scope: SummaryScope): boolean {
 /** Which of the three claim buckets this unit is in, if any. See {@link Summary.claimsRefuted}. */
 function claimBucket(state: UnitState): 'standing' | 'confirmed' | 'refuted' | undefined {
   if (state.prior.kind !== 'claimed') return undefined;
-  if (state.lastAsked === 0) return 'standing';
-  return state.lastProven === 0 ? 'refuted' : 'confirmed';
+  if (state.lastAsked === NEVER) return 'standing';
+  return state.lastProven === NEVER ? 'refuted' : 'confirmed';
 }
 
 /**
@@ -55,7 +68,7 @@ export function summarize(profile: Profile, scope: SummaryScope): Summary {
   let claimsConfirmed = 0;
   let claimsRefuted = 0;
   let stuck = 0;
-  let lastProven = 0 as Day;
+  let lastProven = NEVER;
 
   for (const [key, state] of Object.entries(profile.units)) {
     if (!inScope(key as UnitKey, scope)) continue;

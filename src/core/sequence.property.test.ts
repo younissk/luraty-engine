@@ -81,7 +81,7 @@ describe('sequences', () => {
     // scheduling bug traced to a commit months earlier.
     fc.assert(
       fc.property(fc.array(arbOp, { maxLength: 60 }), (ops) => {
-        let profile = createProfile('ar', 0 as Day);
+        let profile = createProfile('ar', 1 as Day);
         const lastSeen = new Map<string, number>();
         const confirmed = new Map<string, number>();
         const asked = new Map<string, number>();
@@ -128,7 +128,7 @@ describe('sequences', () => {
   it('never forgets a unit it has met, across any sequence', () => {
     fc.assert(
       fc.property(fc.array(arbOp, { maxLength: 60 }), (ops) => {
-        let profile = createProfile('ar', 0 as Day);
+        let profile = createProfile('ar', 1 as Day);
         const met = new Set<string>();
         for (const op of ops) {
           profile = applyOp(profile, op);
@@ -148,10 +148,10 @@ describe('sequences', () => {
     // which only a mid-sequence reload can show.
     fc.assert(
       fc.property(fc.array(arbOp, { maxLength: 50 }), (ops) => {
-        const withRestarts = ops.reduce(applyOp, createProfile('ar', 0 as Day));
+        const withRestarts = ops.reduce(applyOp, createProfile('ar', 1 as Day));
         const withoutRestarts = ops
           .filter((op) => op.kind !== 'restart')
-          .reduce(applyOp, createProfile('ar', 0 as Day));
+          .reduce(applyOp, createProfile('ar', 1 as Day));
         expect(withRestarts).toEqual(withoutRestarts);
       }),
     );
@@ -172,8 +172,8 @@ describe('sequences', () => {
         ),
         (evidence) => {
           const byDay = [...evidence].sort((a, b) => a.day - b.day);
-          const forwards = record(createProfile('ar', 0 as Day), byDay);
-          const backwards = record(createProfile('ar', 0 as Day), [...byDay].reverse());
+          const forwards = record(createProfile('ar', 1 as Day), byDay);
+          const backwards = record(createProfile('ar', 1 as Day), [...byDay].reverse());
 
           // ⚠️ EVERY MAX-FOLD AND EVERY COUNTER, not just two of them.
           //
@@ -214,8 +214,8 @@ describe('sequences', () => {
     const hit = { kind: 'retrieval' as const, unit, outcome: 'known' as const, day: 1 as Day };
     const miss = { kind: 'retrieval' as const, unit, outcome: 'unknown' as const, day: 1 as Day };
 
-    const missFirst = record(createProfile('ar', 0 as Day), [miss, hit]);
-    const hitFirst = record(createProfile('ar', 0 as Day), [hit, miss]);
+    const missFirst = record(createProfile('ar', 1 as Day), [miss, hit]);
+    const hitFirst = record(createProfile('ar', 1 as Day), [hit, miss]);
 
     expect(missFirst.units[unit]?.strength).toBe(1);
     expect(hitFirst.units[unit]?.strength).toBe(0);

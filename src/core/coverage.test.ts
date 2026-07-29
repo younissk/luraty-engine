@@ -34,10 +34,10 @@ function knowing(
   for (const word of words) {
     const unit = unitKey(direction, v, pack.key(word));
     for (let i = 0; i < KNOWN_AT_STRENGTH; i++) {
-      evidence.push({ kind: 'retrieval', unit, outcome: 'known', day: D(0) });
+      evidence.push({ kind: 'retrieval', unit, outcome: 'known', day: D(1) });
     }
   }
-  return record(createProfile(language, D(0)), evidence);
+  return record(createProfile(language, D(1)), evidence);
 }
 
 /**
@@ -101,7 +101,7 @@ describe('coverage', () => {
     const passage = 'سوق كتاب ـــ مدرسة';
     expect(arabicPack.key('ـــ')).toBe('');
 
-    const result = coverage(createProfile('ar', D(0)), arabicPack, {
+    const result = coverage(createProfile('ar', D(1)), arabicPack, {
       text: passage,
       variety: AR,
       direction: 'recognise',
@@ -122,7 +122,7 @@ describe('coverage', () => {
     // `0` means the tokenizer matched nothing; `> 0` means it matched and nothing survived keying.
     // One field, two distinguishable diagnoses.
     expect(
-      coverage(createProfile('ar', D(0)), arabicPack, {
+      coverage(createProfile('ar', D(1)), arabicPack, {
         text: 'ـــ',
         variety: AR,
         direction: 'recognise',
@@ -219,7 +219,7 @@ describe('coverage', () => {
   it('does not count exposure as knowledge', () => {
     const passage = text(0, 25); // 25 tokens of `zzz`, never met
     const query = { text: passage, variety: FR, direction: 'recognise' } as const;
-    const fresh = createProfile('fr', D(0));
+    const fresh = createProfile('fr', D(1));
 
     const before = coverage(fresh, frenchPack, query);
 
@@ -306,7 +306,7 @@ describe('coverage', () => {
   it('reports a beginner as 0% known rather than raising an alarm', () => {
     // 0% is the correct answer for someone who has met nothing, and it is indistinguishable from a
     // variety that is absent from the profile. Asserted so nobody "fixes" it into a throw.
-    const beginner = createProfile('fr', D(0));
+    const beginner = createProfile('fr', D(1));
     const result = coverage(beginner, frenchPack, {
       text: text(0, 30),
       variety: FR,

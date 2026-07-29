@@ -155,7 +155,8 @@ export function runDemo(
   const next = rng(42);
 
   // Day 0 for a beginner; a back-dated history for anyone else, so their words are already due.
-  const startDay = who === 'beginner' ? D(0) : D(200);
+  // Day 1, not 0 — zero is the reserved never-sentinel. See `Day`.
+  const startDay = who === 'beginner' ? D(1) : D(200);
   const frequency = override?.frequency;
   const archetypeOpts = { variety: v, day: startDay, seed: 42, frequency: frequency ?? '' };
   let profile: Profile =

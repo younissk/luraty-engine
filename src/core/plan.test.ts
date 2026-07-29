@@ -29,7 +29,7 @@ function proven(entries: readonly (readonly [string, number])[]): Profile {
       evidence.push({ kind: 'retrieval', unit: U(word), outcome: 'known', day: D(day) });
     }
   }
-  return record(createProfile('ar', D(0)), evidence);
+  return record(createProfile('ar', D(1)), evidence);
 }
 
 const words = (session: ReturnType<typeof plan>): string[] =>
@@ -281,7 +281,7 @@ describe('plan', () => {
 
   // ── Degenerate inputs ─────────────────────────────────────────────────────────────────────────
   it('handles a learner who has met nothing', () => {
-    const session = plan(createProfile('ar', D(0)), { day: D(1), maxItems: 10, maxNew: 10 });
+    const session = plan(createProfile('ar', D(1)), { day: D(1), maxItems: 10, maxNew: 10 });
     expect(session.items).toEqual([]);
     expect(session.content.units).toEqual([]);
     // The content request still carries the floor — a beginner reads too.
@@ -338,7 +338,7 @@ describe('plan', () => {
 
   it('separates directions and varieties, because they are separate knowledge', () => {
     const other = variety('ar-levantine')!;
-    let p = createProfile('ar', D(0));
+    let p = createProfile('ar', D(1));
     p = record(p, [
       { kind: 'retrieval', unit: unitKey('recognise', V, 'سوق'), outcome: 'known', day: D(1) },
       { kind: 'retrieval', unit: unitKey('produce', V, 'سوق'), outcome: 'known', day: D(1) },

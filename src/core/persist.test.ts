@@ -30,7 +30,7 @@ function ev(unit: UnitKey, outcome: 'known' | 'unknown', tested: boolean, d: num
 }
 
 function populated() {
-  let p = createProfile('ar', D(0));
+  let p = createProfile('ar', D(1));
   p = advanceTo(p, D(20));
   p = record(p, [
     ev(unitKey('recognise', AR, 'سوق'), 'known', true, 1),
@@ -50,7 +50,7 @@ describe('serialize', () => {
   });
 
   it('round-trips an empty profile', () => {
-    const before = createProfile('fr', D(0));
+    const before = createProfile('fr', D(1));
     const after = deserialize(serialize(before));
     expect(after.ok).toBe(true);
     if (after.ok) expect(after.value).toEqual(before);
@@ -64,11 +64,11 @@ describe('serialize', () => {
     const a = unitKey('recognise', AR, 'ألف');
     const b = unitKey('recognise', AR, 'ياء');
 
-    const forwards = record(createProfile('ar', D(0)), [
+    const forwards = record(createProfile('ar', D(1)), [
       ev(a, 'known', true, 1),
       ev(b, 'known', true, 1),
     ]);
-    const backwards = record(createProfile('ar', D(0)), [
+    const backwards = record(createProfile('ar', D(1)), [
       ev(b, 'known', true, 1),
       ev(a, 'known', true, 1),
     ]);
@@ -209,8 +209,8 @@ describe('deserialize — never throws', () => {
         [colonised]: {
           seen: 1,
           lastSeen: D(5),
-          lastAsked: D(0),
-          lastProven: D(0),
+          lastAsked: D(1),
+          lastProven: D(1),
           prior: { kind: 'none' },
           strength: 0,
           lapses: 0,

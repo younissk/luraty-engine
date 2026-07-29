@@ -100,8 +100,18 @@ Two things worth knowing:
 
 ### Reassessment → the engine says when, you say how
 
-`plan()` returns a `reassess` field. `'due'` means it has been {@link REASSESS_AFTER_DAYS} days
-without a single successful retrieval anywhere in the profile.
+`plan()` returns a `reassess` field with **three** arms:
+
+| kind             | meaning                                                    |
+| ---------------- | ---------------------------------------------------------- |
+| `not-due`        | something was proven recently; carries `daysUntil`         |
+| `due`            | 30 days without a proof; carries a real `daysSinceProven`  |
+| `never-measured` | nothing has EVER been proven — a placed learner on day one |
+
+⚠️ `never-measured` is a separate arm rather than `daysSinceProven: <big number>` because the engine
+stores no epoch. With nothing proven, `day − 0` is your raw day _number_: a host counting Unix days
+was told its brand-new learner had gone 20,661 days without proving anything. The type now makes that
+number unrepresentable.
 
 **That is a trigger, not an instrument.** It names no units and prescribes no method, because how to
 assess somebody is a genuine product decision. When it fires, run whatever placement you run and feed
@@ -109,6 +119,18 @@ the result back as `claim` and `retrieval` evidence. A learner who drills daily 
 resets it constantly and is never nagged.
 
 ## Questions that come up first
+
+### ⚠️ Days start at 1. Zero is reserved.
+
+`day(0)` returns `undefined`. Zero is the "never" sentinel for every date the engine stores, because
+a max-fold needs an identity element — and that only works if no real day is also zero.
+
+It was measured not to be. A host whose epoch is "days since install" naturally starts at 0, and then
+a word asked on the install day read as **never asked**: `plan()` labelled it `'new'` instead of
+`'review'`, a claim disproved that day still counted as standing, and `summarize()` filed it under
+the wrong bucket. Six defects, one ambiguity, all invisible to a host that picked the obvious epoch.
+
+So count from 1. `Math.floor(Date.now() / 86_400_000)` is fine; `daysSinceInstall` needs a `+ 1`.
 
 ### What is a "variety"? Is it the dialect?
 
@@ -234,8 +256,8 @@ if (hard.kind === 'measured' && hard.band === 'in-band') use(candidate);
 // A claimed-but-unchecked passage comes back 'unverified' with BOTH readings. Its claimedLemmas
 // are the best possible `priority` list for tomorrow.
 
-// 6. Is it time to re-measure?
-if (session.reassess.kind === 'due') offerPlacement();
+// 6. Is it time to re-measure? Three answers, not two.
+if (session.reassess.kind !== 'not-due') offerPlacement();
 
 // 7. Save, and snapshot if you just measured something.
 storage.set(serialize(next));
