@@ -180,10 +180,20 @@ const placed = record(
 );
 ```
 
-That is the whole thing. A claim buys **no head start** — the first successful retrieval lands at
-rung 1, exactly like a word nobody ever claimed — so it cannot inflate her numbers. What it buys is
-that day one is not empty, that those words come back as `verify` rather than `new`, and that
-`coverage()` can say `'unverified'` instead of confidently reporting 0%.
+That is the whole thing. What it buys is that day one is not empty, that those words come back as
+`verify` rather than `new`, and that `coverage()` can say `'unverified'` instead of confidently
+reporting 0%.
+
+⚠️ **A bare claim counts for nothing. A claim she then PROVES counts as known.** The first successful
+retrieval of a claimed word reaches the known rung, where an unclaimed word would need two — a claim
+plus an independent retrieval is two signals from different sources.
+
+That matters more than it sounds, and it was found by simulating a learner rather than by reasoning.
+A heritage speaker who places at 2,558 words and drills 15 a day has a queue that returns each word
+about every **172 days**. Without this rule her home screen reads **0 known for twelve weeks** while
+she reads the material perfectly. With it, it climbs every single week: 67, 160, 258, 356 … 1,085.
+
+It is also reversible: one wrong answer takes the raw rung to 0, and the word stops counting.
 
 ⚠️ **Re-placing later is safe and needs no special handling.** A claim writes to a field no
 measurement writes, so it is structurally incapable of overwriting one.

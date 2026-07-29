@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { unitKey, variety, type Day, type UnitKey } from '../model/ids.js';
 import { arbEvidence as anyEvidence, arbPassive, kindsIn } from '../testing/evidence.js';
-import { isKnown, KNOWN_AT_STRENGTH, MAX_STRENGTH } from '../model/unit.js';
+import { effectiveStrength, isKnown, KNOWN_AT_STRENGTH, MAX_STRENGTH } from '../model/unit.js';
 
 import { createProfile, unitState } from './profile.js';
 import { record } from './record.js';
@@ -139,7 +139,14 @@ describe('record — laws', () => {
           expect(s.strength).toBeGreaterThanOrEqual(0);
           expect(s.strength).toBeLessThanOrEqual(MAX_STRENGTH);
           expect(Number.isInteger(s.strength)).toBe(true);
-          expect(isKnown(s)).toBe(s.strength >= KNOWN_AT_STRENGTH);
+          // ⚠️ NOT `s.strength >= KNOWN_AT_STRENGTH`. `isKnown` reads the EFFECTIVE rung, which adds
+          // one for a claim that has been confirmed by a real retrieval — a claim plus an
+          // independent proof is two signals from different sources. A bare claim still adds
+          // nothing, which is the half worth pinning here.
+          expect(isKnown(s)).toBe(effectiveStrength(s) >= KNOWN_AT_STRENGTH);
+          if (s.prior.kind === 'none' || s.lastProven === 0) {
+            expect(effectiveStrength(s)).toBe(s.strength);
+          }
         }
       }),
     );

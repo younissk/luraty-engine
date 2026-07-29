@@ -2,7 +2,7 @@ import { assertNever } from '../internal/assert.js';
 import { NEVER, parseUnitKey, type UnitKey } from '../model/ids.js';
 import type { Profile } from '../model/profile.js';
 import type { Summary, SummaryScope } from '../model/summary.js';
-import { isKnown, MAX_STRENGTH, type UnitState } from '../model/unit.js';
+import { effectiveStrength, isKnown, MAX_STRENGTH, type UnitState } from '../model/unit.js';
 
 import { STUCK_AFTER_LAPSES } from './plan.js';
 
@@ -74,9 +74,14 @@ export function summarize(profile: Profile, scope: SummaryScope): Summary {
     if (!inScope(key as UnitKey, scope)) continue;
 
     units += 1;
-    // Defensive against a rung outside the ladder, which `deserialize` cannot produce and a
-    // hand-built profile can. Dropping it silently would make the histogram disagree with `units`.
-    const rung = Math.min(Math.max(state.strength, 0), MAX_STRENGTH);
+    // ⚠️ THE EFFECTIVE RUNG, not the raw one — so a confirmed claim shows up in the histogram at the
+    // same place it counts for `known`. `known` is documented as a suffix sum of `byStrength`, and
+    // reporting the raw rung here while `isKnown` reads the effective one would break that law and
+    // hand a host two numbers that quietly disagree.
+    //
+    // Defensive `min`/`max` against a rung outside the ladder, which `deserialize` cannot produce and
+    // a hand-built profile can. Dropping it silently would make the histogram disagree with `units`.
+    const rung = Math.min(Math.max(effectiveStrength(state), 0), MAX_STRENGTH);
     byStrength[rung] = (byStrength[rung] ?? 0) + 1;
 
     if (isKnown(state)) known += 1;

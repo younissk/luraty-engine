@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   clampStrength,
+  effectiveStrength,
   hasStandingClaim,
   isKnown,
   KNOWN_AT_STRENGTH,
@@ -114,5 +115,47 @@ describe('UNMET', () => {
     });
     expect(isKnown(UNMET)).toBe(false);
     expect(hasStandingClaim(UNMET)).toBe(false);
+  });
+});
+
+describe('a confirmed claim is worth one rung', () => {
+  const claimed = { kind: 'claimed' as const, on: 5 as Day };
+
+  it('counts a claim plus one proof as known, and a bare claim as nothing', () => {
+    // ⚠️ THE RULE THAT UNBLOCKED A SIMULATED LEARNER WHOSE COUNT READ ZERO FOR TWELVE WEEKS.
+    // She placed at 2,558 claimed words and drilled 15 a day, so her queue returned a word roughly
+    // every 172 days — and the known rung needs TWO proofs. She had proven 1,085 claims, read the
+    // sample passage at 100%, and the engine still said she knew nothing.
+    //
+    // A claim plus an independent retrieval is two signals from different sources. That is what the
+    // known rung was always meant to represent.
+    const bare = state({ prior: claimed });
+    expect(effectiveStrength(bare)).toBe(0);
+    expect(isKnown(bare)).toBe(false);
+
+    const confirmed = state({ prior: claimed, strength: 1, lastProven: 9 as Day });
+    expect(effectiveStrength(confirmed)).toBe(2);
+    expect(isKnown(confirmed)).toBe(true);
+  });
+
+  it('gives an UNCLAIMED word no such credit', () => {
+    // The half that keeps it honest. One proof on a word nobody claimed is still one signal.
+    const once = state({ strength: 1, lastProven: 9 as Day });
+    expect(effectiveStrength(once)).toBe(1);
+    expect(isKnown(once)).toBe(false);
+  });
+
+  it('takes the credit away again when she gets it wrong', () => {
+    // The bonus rides on `strength` rather than replacing it, so nothing here is permanent. A
+    // claimed word proven once sits at raw 1 / effective 2; one failed retrieval floors the raw rung
+    // at 0, and the effective rung falls to 1.
+    const lapsed = state({ prior: claimed, strength: 0, lastProven: 9 as Day, lapses: 1 });
+    expect(effectiveStrength(lapsed)).toBe(1);
+    expect(isKnown(lapsed)).toBe(false);
+  });
+
+  it('never pushes a unit off the top of the ladder', () => {
+    const maxed = state({ prior: claimed, strength: MAX_STRENGTH, lastProven: 9 as Day });
+    expect(effectiveStrength(maxed)).toBe(MAX_STRENGTH);
   });
 });

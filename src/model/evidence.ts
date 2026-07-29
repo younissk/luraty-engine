@@ -82,10 +82,15 @@ export type Help = {
  * log would be lost on the first one.
  *
  * A claim sets {@link UnitState.prior} and touches nothing else — not `strength`, not `seen`, not
- * `lastAsked`. It buys no head start: the first successful retrieval on a claimed word lands at
- * `strength: 1`, exactly like a word nobody ever claimed. That is what makes it structurally
- * incapable of overwriting a measurement, and what makes re-placing at month six safe with no
- * "never overwrite" rule that somebody has to remember.
+ * `lastAsked`. That is what makes it structurally incapable of overwriting a measurement, and what
+ * makes re-placing at month six safe with no "never overwrite" rule anybody has to remember.
+ *
+ * ⚠️ **A bare claim is worth nothing; a CONFIRMED one is worth a rung.** The fold is untouched — the
+ * first proof of a claimed word still lands at raw `strength: 1`, exactly like any other word. But
+ * {@link effectiveStrength} adds one on read once `lastProven` has moved, so a claim plus an
+ * independent retrieval reaches the known rung. Two signals from different sources, which is what
+ * that rung was always meant to represent. See {@link effectiveStrength} for the simulated learner
+ * whose count read zero for twelve weeks without it.
  */
 export type Claim = {
   readonly kind: 'claim';

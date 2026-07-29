@@ -87,6 +87,11 @@ She answers. `record()` folds the result in:
 
 **A word counts as known at rung 2 or above.** That is the entire definition; there is no box.
 
+⚠️ One adjustment: a word she **claimed** and has since **proved once** counts as known too. A bare
+claim is still worth nothing — it needs a real retrieval — but a claim plus an independent proof is
+two signals from different sources, which is what that rung represents. Without it, a learner placed
+at 2,500 words waits ~172 days for each word's second proof and her count reads zero for months.
+
 Two rows are worth dwelling on. **Reading proves nothing** — a heritage speaker recognises a word's
 shape without holding its sense, and will not ask; if not-asking counted, the register gap this
 product exists to find would be invisible by construction. But **tapping the gloss is not nothing**:
