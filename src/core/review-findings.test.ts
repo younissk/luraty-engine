@@ -27,7 +27,7 @@ import { summarize } from './summary.js';
  * @module
  */
 
-const V = variety('de')!;
+const V = variety('de');
 const D = (n: number): Day => n as Day;
 const U = (word: string): UnitKey => unitKey('recognise', V, word);
 const drill = (word: string, outcome: 'known' | 'unknown', d: number): Evidence => ({
@@ -39,7 +39,9 @@ const drill = (word: string, outcome: 'known' | 'unknown', d: number): Evidence 
 
 describe('the never-sentinel cannot collide with a real day', () => {
   it('refuses day zero at the constructor', () => {
-    expect(day(0)).toBeUndefined();
+    // Cast so the return type is `Day` rather than `undefined` — the point is to exercise the
+    // RUNTIME guard, which still has to hold for JavaScript callers and for values from storage.
+    expect(day(0 as 1)).toBeUndefined();
     expect(day(1)).toBe(1);
   });
 

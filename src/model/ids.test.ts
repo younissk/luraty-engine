@@ -15,6 +15,18 @@ import { DIRECTIONS, day, parseUnitKey, unitKey, variety } from './ids.js';
  * @module
  */
 
+/**
+ * ⚠️ THE ILLEGAL CASES ARE ASSERTED THROUGH A LYING CAST, ON PURPOSE.
+ *
+ * `variety('')` and `day(0)` now type as `undefined`, so `expect(variety(''))` is a void expression
+ * and the compiler has already made the mistake unwritable. That is the win — but it would also make
+ * these tests assert nothing about the RUNTIME, and the runtime guard still has to hold for a
+ * JavaScript consumer, for a `someString as 'de'` cast, and for every value crossing `deserialize`.
+ *
+ * Casting the argument to a legal literal type gives back the branded return type while passing an
+ * illegal VALUE — so the assertion runs against the real body. Delete the body and these fail.
+ */
+
 describe('variety', () => {
   it('accepts ordinary ids', () => {
     expect(variety('fr')).toBe('fr');
@@ -24,13 +36,13 @@ describe('variety', () => {
 
   it('rejects an empty id', () => {
     // A nameless variety makes every key it appears in ambiguous.
-    expect(variety('')).toBeUndefined();
+    expect(variety('' as 'de')).toBeUndefined();
   });
 
   it('rejects a colon, because the unit key uses it as a separator', () => {
-    expect(variety('ar:msa')).toBeUndefined();
-    expect(variety(':')).toBeUndefined();
-    expect(variety('a:')).toBeUndefined();
+    expect(variety('ar:msa' as 'ar-msa')).toBeUndefined();
+    expect(variety(':' as 'de')).toBeUndefined();
+    expect(variety('a:' as 'de')).toBeUndefined();
   });
 });
 
@@ -45,7 +57,7 @@ describe('day', () => {
     // rather than `'review'`, a claim disproved that day still counts as standing, and `summarize()`
     // files it under the wrong bucket. Six defects, one ambiguity, all invisible to a host that
     // picked the obvious epoch.
-    expect(day(0)).toBeUndefined();
+    expect(day(0 as 1)).toBeUndefined();
     expect(day(1)).toBe(1);
     expect(day(365)).toBe(365);
   });
@@ -53,10 +65,10 @@ describe('day', () => {
   it('rejects anything that is not a whole day', () => {
     // A fractional day would let a decision depend on the time of day, which is the whole reason
     // this is a day count rather than a timestamp.
-    expect(day(1.5)).toBeUndefined();
-    expect(day(-1)).toBeUndefined();
+    expect(day(1.5 as 1)).toBeUndefined();
+    expect(day(-1 as 1)).toBeUndefined();
     expect(day(NaN)).toBeUndefined();
-    expect(day(Infinity)).toBeUndefined();
+    expect(day(Infinity as 1)).toBeUndefined();
   });
 });
 
@@ -69,7 +81,7 @@ describe('DIRECTIONS', () => {
 });
 
 describe('unitKey and parseUnitKey', () => {
-  const AR = variety('ar-msa')!;
+  const AR = variety('ar-msa');
 
   it('builds the documented shape', () => {
     expect(unitKey('recognise', AR, 'سوق')).toBe('recognise:ar-msa:سوق');
@@ -123,7 +135,7 @@ describe('unitKey and parseUnitKey', () => {
         fc.constantFrom('fr', 'ar-msa', 'ar-levantine'),
         fc.oneof(arabicText, frenchText).filter((w) => w.length > 0),
         (direction, v, word) => {
-          const key = unitKey(direction, variety(v)!, word);
+          const key = unitKey(direction, variety(v), word);
           const parts = parseUnitKey(key);
           expect(parts).toEqual({ direction, variety: v, word });
         },

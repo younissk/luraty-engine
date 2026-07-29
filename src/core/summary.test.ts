@@ -16,8 +16,8 @@ import { summarize } from './summary.js';
  * @module
  */
 
-const AR = variety('ar-msa')!;
-const LEV = variety('ar-levantine')!;
+const AR = variety('ar-msa');
+const LEV = variety('ar-levantine');
 const WORDS = ['سوق', 'كتاب', 'مدرسة', 'بيت', 'ماء'];
 const D = (n: number): Day => n as Day;
 
@@ -89,7 +89,7 @@ describe('summarize — laws', () => {
         createProfile('de', D(1)),
         words.map((w) => ({
           kind: 'retrieval' as const,
-          unit: unitKey('recognise', variety('de')!, w),
+          unit: unitKey('recognise', variety('de'), w),
           outcome: 'known' as const,
           day: D(1),
         })),
@@ -127,7 +127,7 @@ describe('summarize — laws', () => {
 
   it('reports the full span since the epoch when nothing has ever been proven', () => {
     const p = record(createProfile('de', D(40)), [
-      { kind: 'claim', unit: unitKey('recognise', variety('de')!, 'x'), day: D(1) },
+      { kind: 'claim', unit: unitKey('recognise', variety('de'), 'x'), day: D(1) },
     ]);
     // A learner who was placed and never drilled has proven nothing, and the honest reading of that
     // is "as long as we have known her" rather than zero.

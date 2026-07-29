@@ -16,7 +16,7 @@ import { record } from './record.js';
  * @module
  */
 
-const DE = variety('de')!;
+const DE = variety('de');
 const D = (n: number): Day => n as Day;
 
 describe('vocabularyOf', () => {

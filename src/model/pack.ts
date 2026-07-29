@@ -11,12 +11,33 @@
  * @module
  */
 
+import type { Variety } from './ids.js';
+
 /** A canonical word form: the pack's answer to "are these two the same word?". */
 export type Lemma = string;
 
 export type LanguagePack = {
-  /** Identifies the pack. The engine treats it as opaque. */
-  readonly id: string;
+  /**
+   * Identifies the pack, and IS the variety it addresses.
+   *
+   * ⚠️ **Branded as {@link Variety}, and that is a guarantee `createPack` now enforces.** A pack id
+   * containing a colon used to build fine while `variety()` rejected the same string — and if a host
+   * forced it through, `unitKey('recognise', 'ar:msa', 'سوق')` produced `recognise:ar:msa:سوق`,
+   * which `parseUnitKey` reads back as variety `ar`, word `msa:سوق`. A pack that builds, reports
+   * healthy, and silently re-addresses every word it owns.
+   *
+   * Validating it at the one door that already returns a result makes that unrepresentable, and it
+   * is what lets `learner()` default its variety: pack id and variety are the same string in every
+   * pack that exists (`de`, `fr`, `ar-msa`), so restating it at the call site was duplication with a
+   * live typo hazard — `variety('be')` beside a `de` pack files every unit under an address nothing
+   * ever reads, forever, silently.
+   *
+   * ⚠️ This encodes ONE PACK PER VARIETY. That is true today and it is not free: the day a second
+   * German pack ships (a graded-reader one beside the frequency one), both address `de` and the id
+   * can no longer be the variety. The fix then is an optional `PackConfig.variety` defaulting to
+   * `id` — purely additive, and it breaks no stored unit key.
+   */
+  readonly id: Variety;
 
   /**
    * Text → surface tokens.

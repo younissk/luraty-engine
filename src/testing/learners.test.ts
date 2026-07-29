@@ -33,7 +33,7 @@ function knowsLemma(profile: Profile, lemma: string): boolean {
  * @module
  */
 
-const V = variety('de')!;
+const V = variety('de');
 const D = (n: number): Day => n as Day;
 const opts = { variety: V, day: D(200), frequency: fixtures.germanData.frequency };
 

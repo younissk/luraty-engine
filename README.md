@@ -20,21 +20,22 @@ what to teach, when, how an answer is judged, what happens next. It runs unchang
 ## Thirty seconds
 
 ```ts
-import { createProfile, day, learner, variety } from '@luraty/engine';
+import { createProfile, day, learner } from '@luraty/engine';
 import { de, vocabulary } from '@luraty/pack-de'; // already built — no createPack, no file reading
 
-const v = variety('de')!; // which variety this knowledge is in
-const d1 = day(1)!; //      day 0 is reserved as "never" — days start at 1
+const d1 = day(1); // days start at 1 — `day(0)` is a compile error, 0 means "never" inside
 
-// A learner who has met nothing, wrapped in a handle so you stop repeating pack/variety/direction.
-let anna = learner(createProfile('de', d1), { pack: de, variety: v, vocabulary });
+// A learner who has met nothing. `variety` defaults to the pack's own id, `direction` to
+// 'recognise', and `maxNew` below to half the session — all overridable, none invented.
+let anna = learner(createProfile('de', d1), { pack: de, vocabulary });
 
 // 1. PLACEMENT. However you asked, the answer is a list of claims — she says she knows these,
 //    and nobody has checked. This is what stops day one being an empty screen.
 anna = anna.claim(vocabulary.slice(0, 400), d1);
 
-// 2. The engine decides. `maxNew` is required: it caps how much NEW material may crowd out review.
-const session = anna.plan({ day: d1, maxItems: 12, maxNew: 4 });
+// 2. The engine decides. `maxNew` caps how much NEW material may crowd out review; it defaults to
+//    half the session, which is where a year-long sweep puts the peak at every budget tested.
+const session = anna.plan({ day: d1, maxItems: 12 });
 //    Every item carries a `why`: 'verify' (she claimed it), 'new', 'relearn', or 'review'.
 //    Show them differently — calling a word she grew up hearing "new" is the failure to avoid.
 
@@ -60,6 +61,11 @@ always reachable — the handle is a convenience, never a wall.
 snippet so it cannot rot: it compiles against this engine and runs against the real 10,000-word
 German pack on every `npm run check`. This README once shipped a quickstart that had not compiled
 for three commits, which is why.
+
+**Want more in one day?** `maxItems` is per CALL, not per day. Record what she did and call `plan`
+again — it dries up on its own, because answering sets `lastAsked = today`. Do **not** advance the
+day to unlock more: that tells the engine a night of sleep happened, which is what every interval in
+here is a claim about.
 
 Watch it run for thirty days: `npm run demo`.
 

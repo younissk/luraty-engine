@@ -53,17 +53,26 @@ export type PlanOptions = {
   /**
    * How many genuinely NEW units may be introduced today. Clamped to `[0, maxItems]`.
    *
-   * ⚠️ **REQUIRED, WITH NO DEFAULT, AND THAT IS THE FIX RATHER THAN A NUISANCE.** A never-asked
-   * unit's wait is `day - 0`, which strictly dominates every attended unit at every epoch. So the
-   * host's introduction rate silently decided the entire review schedule, and the engine could
-   * neither express nor cap it. Measured: a host feeding 20 new words a day into a 20-item budget
-   * gave review **0% of slots, forever**; at 15/day it got 24.7%. Nothing errored and nothing looked
-   * wrong.
+   * **Defaults to `floor(maxItems / 2)`**, which is measured rather than chosen.
    *
-   * There is no safe default. `0` means she never learns a word; `maxItems` reproduces the measured
-   * bug exactly. It is a POLICY the engine cannot infer — only the host knows how long its exercises
-   * take — so it becomes a number a human typed. Measured at `maxNew: 5` in the same fixture, review
-   * gets **71.7%**.
+   * ⚠️ **THIS FIELD WAS REQUIRED, AND THE ARGUMENT FOR THAT TURNED OUT TO BE WRONG.** The failure it
+   * exists for is real: a never-asked unit's wait is `day - 0`, which strictly dominates every
+   * attended unit at every epoch, so a host feeding 20 new words a day into a 20-item budget gave
+   * review **0% of slots, forever** and the learner ended a simulated year knowing NOTHING, because
+   * no word was ever drilled twice.
+   *
+   * The claim that followed — "there is no safe default" — was never measured. Sweeping words-known
+   * after a simulated year across budgets 4 to 40, accuracies 0.7 to 0.95 and introduction rates 3
+   * to 20, `floor(maxItems / 2)` is the peak or within **3%** of it in every cell, and exactly the
+   * peak in 21 of 30. At low introduction rates it is identical to the peak, because a cap cannot
+   * bind when there is little new material to hold back.
+   *
+   * ⚠️ And requiring it never prevented the bug. The catastrophic value is `maxNew === maxItems` —
+   * a legal explicit number, and the most natural thing to type when a compiler demands "how many
+   * new units may be introduced" for a full session. Requiring the field converted a silent omission
+   * into a silent explicit mistake. A measured default converts it into the peak.
+   *
+   * The cliff is still there and still sharp: at `maxItems`, a year of daily practice yields zero.
    *
    * ⚠️ **A CEILING ON CROWDING-OUT, NOT AN ABSOLUTE ONE — and the difference is worth reading.**
    * New items skipped by the cap are DEFERRED rather than dropped, and come back to fill slots that
@@ -81,7 +90,7 @@ export type PlanOptions = {
    * What it deliberately does NOT promise is `introduced <= maxNew` in all cases. That statement is
    * false, and writing it in this docstring would have been a lie the tests disprove.
    */
-  readonly maxNew: number;
+  readonly maxNew?: number;
 
   /**
    * Days a unit must wait after reaching {@link KNOWN_AT_STRENGTH} before being drilled again.

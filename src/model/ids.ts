@@ -78,12 +78,39 @@ export type UnitKey = Brand<string, 'UnitKey'>;
 type UnitKeyShape = `${Direction}:${string}`;
 
 /**
+ * What {@link variety} can return, given what the caller actually passed.
+ *
+ * `string extends S` is the "was this a literal?" test, and it is the whole design. Anything that
+ * arrived from storage, a settings screen, `JSON.parse` or a config field keeps its `| undefined`
+ * and keeps its check, because there the failure is a real possibility. A literal the compiler can
+ * already prove legal comes back branded; one it can prove illegal comes back `undefined`, which
+ * upgrades `variety('ar:msa')` from a runtime `undefined` somebody wrote `!` over into a compile
+ * error at the point of use.
+ *
+ * ⚠️ **This removes CEREMONY, never a GUARD.** The body below is untouched, so a JavaScript
+ * consumer, a `someString as 'de'` cast, and every value crossing `deserialize` hit exactly the same
+ * check they did before. If anyone ever "simplifies" that body out on the grounds that the type
+ * already prevents the bad case, all three lose their protection silently — which is why
+ * `ids.test.ts` asserts the runtime behaviour through a lying cast as well as the type.
+ *
+ * ⚠️ It is inference-sensitive, and that is correct rather than a bug: `{ v: 'de' } as const`
+ * narrows and needs no check, the same object without `as const` widens to `string` and does. A
+ * mutable field genuinely could hold anything by the time it is read.
+ */
+export type VarietyOf<S extends string> = string extends S
+  ? Variety | undefined
+  : S extends '' | `${string}:${string}`
+    ? undefined
+    : Variety;
+
+/**
  * Build a {@link Variety}. Returns `undefined` rather than throwing — the caller supplies this, so
  * it is untrusted input.
  *
  * Rejects colons because the unit key uses them as separators, and rejects empty strings because a
- * nameless variety makes every key ambiguous.
+ * nameless variety makes every key ambiguous. See {@link VarietyOf} for why a literal needs no `!`.
  */
+export function variety<S extends string>(id: S): VarietyOf<S>;
 export function variety(id: string): Variety | undefined {
   if (id.length === 0 || id.includes(':')) return undefined;
   return id as Variety;
@@ -95,7 +122,26 @@ export function variety(id: string): Variety | undefined {
  * Zero is the never-sentinel — see {@link Day}. Rejecting it here is what makes that sentinel
  * unambiguous, and it is the same discipline as {@link unitKey} being the only blessed constructor:
  * the check has to live somewhere a caller cannot skip.
+ *
+ * ⚠️ **`day(0)` typing as `undefined` is the POINT, not a casualty.** All six of the defects that
+ * produced the 1-based rule came from a host reaching zero, and now `const d: Day = day(0)` will not
+ * compile — {@link NEVER} is the only way to write it. The sentinel got stronger.
+ *
+ * ⚠️ The illegal set is tested through `` `${N}` `` because there is no arithmetic at the type level,
+ * and each arm is there for a MEASURED reason rather than a symmetric-looking one: `String(-3)` is
+ * `"-3"`, `String(1.5)` is `"1.5"`, and **`String(1e-7)` is `"1e-7"`** — no dot and no leading minus,
+ * so without the `e-` arm a non-integer literal would type as `Day` while the runtime returned
+ * `undefined`. Deliberately NOT rejected: `String(1e21)` is `"1e+21"`, which types as `Day` and is
+ * right, because `Number.isInteger(1e21)` is true. Probe any future numeric edge against tsc rather
+ * than reasoning about it.
  */
+export type DayOf<N extends number> = number extends N
+  ? Day | undefined
+  : `${N}` extends `-${string}` | `${string}.${string}` | `${string}e-${string}` | '0'
+    ? undefined
+    : Day;
+
+export function day<N extends number>(n: N): DayOf<N>;
 export function day(n: number): Day | undefined {
   if (!Number.isInteger(n) || n < NEVER + 1) return undefined;
   return n as Day;

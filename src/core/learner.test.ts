@@ -22,7 +22,7 @@ import { summarize } from './summary.js';
  * @module
  */
 
-const DE = variety('de')!;
+const DE = variety('de');
 const D = (n: number): Day => n as Day;
 const WORDS = vocabularyOf(germanPack, 'der die und haus brot mann wasser gehen');
 const ctx = { pack: germanPack, variety: DE, vocabulary: WORDS } as const;

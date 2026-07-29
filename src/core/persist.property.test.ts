@@ -17,8 +17,8 @@ import { record } from './record.js';
  * one that does not.
  */
 
-const AR = variety('ar-msa')!;
-const LEV = variety('ar-levantine')!;
+const AR = variety('ar-msa');
+const LEV = variety('ar-levantine');
 
 // Deliberately awkward words: an empty-ish set would never exercise the sort, and the punctuation
 // and non-Latin scripts are where canonical ordering usually goes wrong.

@@ -29,7 +29,7 @@ import { arabicPack } from '../testing/packs.js';
  * @module
  */
 
-const V = variety('de')!;
+const V = variety('de');
 const D = (n: number): Day => n as Day;
 const U = (word: string): UnitKey => unitKey('recognise', V, word);
 
@@ -98,7 +98,7 @@ describe('gap 1 — day one is not empty, and coverage does not read zero', () =
     // ~0% on every text for months and every passage came back `'too-hard'`. The app would have
     // starved her of content on the basis of drills it had not run yet.
     const text = Array.from({ length: 6 }, () => 'سوق كتاب مدرسة المدينة بيت ماء').join(' ');
-    const AR = variety('ar-msa')!;
+    const AR = variety('ar-msa');
     const lemmas = [...new Set(arabicPack.split(text).map((s) => arabicPack.key(s)))].filter(
       (l) => l.length > 0,
     );
@@ -132,7 +132,7 @@ describe('gap 1 — day one is not empty, and coverage does not read zero', () =
 
   it('drains to a plain measurement once the claims are checked, with no code change', () => {
     const text = Array.from({ length: 6 }, () => 'سوق كتاب مدرسة المدينة بيت ماء').join(' ');
-    const AR = variety('ar-msa')!;
+    const AR = variety('ar-msa');
     const lemmas = [...new Set(arabicPack.split(text).map((s) => arabicPack.key(s)))].filter(
       (l) => l.length > 0,
     );
@@ -361,8 +361,8 @@ describe('gap 5 — the engine can ask for a re-measurement, and the host can di
   it('refuses to blur two varieties into one number', () => {
     // For a diglossic learner, MSA and the home dialect are two systems. A single figure across them
     // is a category error, so the scope is a union the caller had to type rather than a default.
-    const AR = variety('ar-msa')!;
-    const LEV = variety('ar-levantine')!;
+    const AR = variety('ar-msa');
+    const LEV = variety('ar-levantine');
     const p = record(createProfile('ar', D(1)), [
       { kind: 'retrieval', unit: unitKey('recognise', AR, 'x'), outcome: 'known', day: D(1) },
       { kind: 'retrieval', unit: unitKey('recognise', AR, 'x'), outcome: 'known', day: D(2) },

@@ -120,6 +120,41 @@ resets it constantly and is never nagged.
 
 ## Questions that come up first
 
+### Wait — where did the `!` go?
+
+`variety('de')` and `day(1)` used to need a `!` because both return `T | undefined`. They still do —
+for a `string` or a `number`, which is where the failure is real. But a **literal** the compiler can
+already prove legal now comes back branded, and one it can prove illegal comes back `undefined`, so
+`day(0)` is a compile error rather than a runtime `undefined` somebody wrote `!` over.
+
+It is inference-sensitive, and that is correct rather than surprising once you see why:
+`{ v: 'de' } as const` narrows and needs no check; the same object without `as const` widens to
+`string` and does. A mutable field genuinely could hold anything by the time it is read.
+
+### What defaults, and what deliberately does not
+
+| defaults to                                  | why it is safe                                                                                                      |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `LearnerContext.variety` → `pack.id`         | pack id and variety are the same string in every pack, and `createPack` now validates the id as a legal variety     |
+| `LearnerContext.direction` → `'recognise'`   | getting it wrong MISFILES into a separately-measured bucket, so the `produce` side of a summary stays visibly empty |
+| `PlanOptions.maxNew` → `floor(maxItems / 2)` | measured: the peak or within 3% of it across budgets 4–40, accuracies 0.7–0.95, intro rates 3–20                    |
+| `Learner.summary()` → this skill             | defaults to the NARROW scope, never the one that blurs MSA and a home dialect together                              |
+
+And what stays explicit, on purpose:
+
+- **`CoverageQuery.variety`** — the one place pack and variety legitimately differ. _"How much of this
+  MSA newspaper can she read out of her Levantine vocabulary?"_ is the transfer question the product
+  exists to answer; collapsing them deletes it.
+- **`CoverageQuery.direction`** — right for reading, silently wrong for a speaking task, and every
+  number would still look plausible.
+- **`PlanOptions.maxItems`** — the length of your screen. No sweep behind any number, so a default
+  would be pure invention.
+- **`createProfile(language, startDay)`** — `language` is genuinely distinct from the variety
+  (`'ar'` vs `'ar-msa'`), and defaulting `startDay` would have the engine assume an epoch it does not
+  know. Called once per learner: the cheapest place to be explicit.
+- **`day` on `plan()` and on every `Evidence`** — time is data, and there is nowhere in here to read
+  a clock.
+
 ### ⚠️ Days start at 1. Zero is reserved.
 
 `day(0)` returns `undefined`. Zero is the "never" sentinel for every date the engine stores, because
@@ -231,6 +266,9 @@ and the first is not optional:
 3. **The engine keeps no history at all.** A new measurement silently supersedes the old one, and
    past attempts are stored nowhere. `summarize()` snapshots are how you answer "better than March?",
    and you have to take them.
+
+⚠️ **The `Learner` methods that take a day are sugar, and an offline queue must not use them.**
+Sort by day and pass the real one.
 
 Related: **sort an offline queue by day before folding it.** Every date field is a max-fold and
 converges regardless, but the rungs do not. Same-day ties stay genuinely ambiguous and are yours to

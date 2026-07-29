@@ -1,5 +1,6 @@
 import { NORMALIZE_STEPS, applySteps, isNormalizeStep } from '../internal/text.js';
 import type { LanguagePack, Lemma, NormalizeStep, PackConfig, PackData } from '../model/pack.js';
+import { variety } from '../model/ids.js';
 import type { Decoded } from '../model/wire.js';
 
 /**
@@ -168,6 +169,19 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
   }
   const c = anyConfig as { id?: unknown; tokenize?: unknown };
   if (typeof c.id !== 'string' || c.id.length === 0) return fail('pack has no id');
+
+  // ⚠️ THE ID MUST BE A LEGAL VARIETY, because `LanguagePack.id` IS the variety — see the field's
+  // docstring. Before this check a pack id of `'ar:msa'` built cleanly while `variety()` rejected
+  // the same string, and a host that used it as a variety got `recognise:ar:msa:سوق`, which
+  // `parseUnitKey` reads back as variety `ar`, word `msa:سوق`. A pack that builds, reports healthy,
+  // and silently re-addresses every word it owns.
+  //
+  // Routed through the blessed constructor rather than re-testing for a colon here, so there is one
+  // definition of "legal variety" and this cannot drift from it.
+  const packVariety = variety(c.id);
+  if (packVariety === undefined) {
+    return fail(`pack id "${c.id}" is not a legal variety — it must not contain ":"`);
+  }
   if (typeof c.tokenize !== 'object' || c.tokenize === null) {
     return fail('pack config has no "tokenize" section');
   }
@@ -352,7 +366,7 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
   }
 
   const pack: LanguagePack = {
-    id: config.id,
+    id: packVariety,
 
     split(text: string): readonly string[] {
       // A fresh lastIndex every call: a shared global regex is stateful, and reusing one across

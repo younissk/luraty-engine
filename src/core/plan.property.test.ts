@@ -17,7 +17,7 @@ import { isKnown, KNOWN_AT_STRENGTH } from '../model/unit.js';
  * @module
  */
 
-const V = variety('ar-msa')!;
+const V = variety('ar-msa');
 const D = (n: number): Day => n as Day;
 
 /** A profile of `size` units with assorted, arbitrary histories. */

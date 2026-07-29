@@ -28,7 +28,7 @@ import { KNOWN_AT_STRENGTH, MAX_STRENGTH, STRENGTH_STEP } from '../model/unit.js
  * @module
  */
 
-const V = variety('de')!;
+const V = variety('de');
 const D = (n: number): Day => n as Day;
 const U = (w: string): UnitKey => unitKey('recognise', V, w);
 

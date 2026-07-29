@@ -1,4 +1,5 @@
 import { createPack } from '../core/pack.js';
+import { variety } from '../model/ids.js';
 import type { LanguagePack, PackConfig, PackData } from '../model/pack.js';
 
 /**
@@ -39,7 +40,16 @@ function build(config: PackConfig, data: PackData): LanguagePack {
   const boom = (): never => {
     throw new Error(message);
   };
-  return { id: config.id, split: boom, key: boom, rank: boom, compare: boom };
+  // `config.id` is a fixture literal, so this cannot fail — but it goes through the constructor
+  // anyway, because `LanguagePack.id` is branded and `unitKey()` must stay the only place that
+  // launders a string into a brand.
+  return {
+    id: variety(config.id) ?? variety('broken-fixture'),
+    split: boom,
+    key: boom,
+    rank: boom,
+    compare: boom,
+  };
 }
 
 // ── French ──────────────────────────────────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ import { advanceTo, createProfile, unitState } from './profile.js';
 import { record } from './record.js';
 import { isKnown } from '../model/unit.js';
 
-const AR = variety('ar-msa')!;
+const AR = variety('ar-msa');
 const D = (n: number): Day => day(n)!;
 
 /**

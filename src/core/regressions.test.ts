@@ -19,7 +19,7 @@ import { isKnown } from '../model/unit.js';
  * @module
  */
 
-const AR = variety('ar-msa')!;
+const AR = variety('ar-msa');
 const D = (n: number): Day => n as Day;
 
 describe('regressions', () => {

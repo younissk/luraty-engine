@@ -26,8 +26,8 @@ import { arbEvidence as anyEvidence } from '../testing/evidence.js';
  * @module
  */
 
-const AR = variety('ar-msa')!;
-const LEV = variety('ar-levantine')!;
+const AR = variety('ar-msa');
+const LEV = variety('ar-levantine');
 const WORDS = ['سوق', 'كتاب', 'بيت', 'ماء'];
 
 type Op =

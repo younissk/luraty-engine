@@ -144,10 +144,15 @@ export function plan(profile: Profile, options: PlanOptions): Session {
   const day = options.day;
   const maxItems = clamp(options.maxItems, 0);
   const gap = clamp(options.reviewGapDays, DEFAULT_REVIEW_GAP_DAYS);
+  // Defaults to half the session, and the number is measured rather than chosen — see
+  // {@link PlanOptions.maxNew}. Sweeping a simulated year across budgets 4–40, accuracies 0.7–0.95
+  // and introduction rates 3–20, `floor(maxItems / 2)` lands on the peak or within 3% of it
+  // everywhere.
+  //
   // Clamped INTO the session size rather than merely to a non-negative number: a cap larger than the
   // session cannot mean anything, and letting it through would make the over-ask arithmetic below
   // request more new content than a session could ever show.
-  const maxNew = Math.min(clamp(options.maxNew, 0), maxItems);
+  const maxNew = Math.min(clamp(options.maxNew, Math.floor(maxItems / 2)), maxItems);
 
   // Built once per call rather than per comparison: a comparator that scans an array is O(n) inside
   // an O(n log n) sort, which is how a session of 10,000 units becomes a frozen frame.

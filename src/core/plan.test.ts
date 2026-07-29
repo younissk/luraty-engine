@@ -17,7 +17,7 @@ import { KNOWN_AT_STRENGTH } from '../model/unit.js';
  * @module
  */
 
-const V = variety('ar-msa')!;
+const V = variety('ar-msa');
 const D = (n: number): Day => n as Day;
 const U = (word: string): UnitKey => unitKey('recognise', V, word);
 
@@ -337,7 +337,7 @@ describe('plan', () => {
   });
 
   it('separates directions and varieties, because they are separate knowledge', () => {
-    const other = variety('ar-levantine')!;
+    const other = variety('ar-levantine');
     let p = createProfile('ar', D(1));
     p = record(p, [
       { kind: 'retrieval', unit: unitKey('recognise', V, 'سوق'), outcome: 'known', day: D(1) },

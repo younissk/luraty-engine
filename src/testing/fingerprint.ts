@@ -145,8 +145,15 @@ export function fingerprint(): string {
   lines.push(`sort | corpus | ${sortable.map(show).join('~')}`);
 
   // ── Ids ──────────────────────────────────────────────────────────────────────────────────────
+  //
+  // ⚠️ THE `if (AR !== undefined)` GUARDS ARE GONE, and that is an improvement rather than tidying.
+  // `variety('ar-msa')` is a literal the compiler now proves legal, so they were dead — but while
+  // they were there, a `variety()` that began returning undefined would have made this function emit
+  // a SHORTER fingerprint under BOTH VMs, and the cross-runtime lane would have gone green while
+  // covering nothing. A conditional wrapped around a whole test body is a coverage cliff with a
+  // handrail. The bare blocks are kept only to preserve scoping.
   const AR = variety('ar-msa');
-  if (AR !== undefined) {
+  {
     for (const word of ['سوق', 'a:b', '👍🏽', '']) {
       const key = unitKey('recognise', AR, word);
       const parts = parseUnitKey(key);
@@ -158,7 +165,7 @@ export function fingerprint(): string {
   }
 
   // ── The full state and persistence loop ──────────────────────────────────────────────────────
-  if (AR !== undefined) {
+  {
     let profile = createProfile('ar', 1 as Day);
     for (let day = 1; day <= 20; day++) {
       const word = CORPUS[day % CORPUS.length] ?? 'سوق';
@@ -209,8 +216,8 @@ export function fingerprint(): string {
   // an assumption. It goes red the day someone adds a `fraction` field, a `Math.round(ratio * 100)`
   // or a sort of `unknownLemmas` (whose idiomatic comparator is the banned `localeCompare`).
   for (const pack of [frenchPack, arabicPack]) {
-    const v = variety(pack.id);
-    if (v === undefined) continue;
+    // `pack.id` IS a `Variety` now — `createPack` validates it — so there is nothing to guard.
+    const v = pack.id;
     const words = pack.id.startsWith('ar')
       ? ['سوق', 'كتاب', 'مدرسة', 'المدينة', 'ـــ', 'بيت']
       : ['de', 'la', "l'automne", 'marché', 'vais', 'zzz'];
@@ -255,7 +262,7 @@ export function fingerprint(): string {
   // this is what makes that a checked claim rather than an assumption. It goes red the day someone
   // sorts unit keys with `localeCompare` (ICU-backed, and the ORDER of a session would then depend
   // on the device's language settings) or introduces a float into the score.
-  if (AR !== undefined) {
+  {
     let scheduled = createProfile('ar', 1 as Day);
     for (let i = 0; i < 12; i++) {
       const unit = unitKey(i % 3 === 0 ? 'produce' : 'recognise', AR, CORPUS[i] ?? 'سوق');

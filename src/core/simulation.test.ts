@@ -28,8 +28,8 @@ import { isKnown, MAX_STRENGTH } from '../model/unit.js';
  * reproducible from the seed alone, which is the entire argument for determinism in the first place.
  */
 
-const AR = variety('ar-msa')!;
-const DIALECT = variety('ar-levantine')!;
+const AR = variety('ar-msa');
+const DIALECT = variety('ar-levantine');
 
 /** A tiny seeded PRNG (mulberry32). Deterministic, and good enough to shuffle a schedule. */
 function rng(seed: number): () => number {

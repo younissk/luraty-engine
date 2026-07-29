@@ -66,8 +66,8 @@ const FROZEN_V3 =
   '["recognise:fr:automne",{"seen":1,"lastSeen":12,"lastAsked":12,"lastProven":12,"prior":null,"strength":1,"lapses":0}]' +
   ']}';
 
-const AR = variety('ar-msa')!;
-const FR = variety('fr')!;
+const AR = variety('ar-msa');
+const FR = variety('fr');
 const D = (n: number): Day => n as Day;
 
 /** The exact sequence that produced both goldens. Changing it invalidates them. */
@@ -274,7 +274,7 @@ describe('the migration chain', () => {
     expect(loaded.ok).toBe(true);
     if (!loaded.ok) return;
 
-    const haus = unitState(loaded.value, unitKey('recognise', variety('de')!, 'haus'));
+    const haus = unitState(loaded.value, unitKey('recognise', variety('de'), 'haus'));
     expect(haus.strength).toBe(KNOWN_AT_STRENGTH - 1);
     // The point of the clamp: a LEARNING unit must not become a KNOWN one by migrating.
     expect(isKnown(haus)).toBe(false);
@@ -311,7 +311,7 @@ describe('the migration chain', () => {
     const tooHigh = deserialize(withStrength('99'));
     expect(tooHigh.ok).toBe(true);
     if (tooHigh.ok) {
-      expect(unitState(tooHigh.value, unitKey('recognise', variety('de')!, 'x')).strength).toBe(
+      expect(unitState(tooHigh.value, unitKey('recognise', variety('de'), 'x')).strength).toBe(
         MAX_STRENGTH,
       );
     }

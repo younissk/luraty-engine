@@ -16,7 +16,7 @@ import { record } from './record.js';
  * it, which is the bug report you would otherwise spend an afternoon constructing by hand.
  */
 
-const AR = variety('ar-msa')!;
+const AR = variety('ar-msa');
 const WORDS = ['سوق', 'كتاب', 'مدرسة', 'بيت', 'ماء'];
 
 const UNIVERSE = { variety: AR, words: WORDS } as const;

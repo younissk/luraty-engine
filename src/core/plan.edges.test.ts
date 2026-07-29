@@ -24,7 +24,7 @@ import { record } from './record.js';
  * @module
  */
 
-const V = variety('de')!;
+const V = variety('de');
 const D = (n: number): Day => n as Day;
 const U = (word: string): UnitKey => unitKey('recognise', V, word);
 const claim = (word: string, day: number): Evidence => ({

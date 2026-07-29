@@ -18,8 +18,8 @@ import { KNOWN_AT_STRENGTH } from '../model/unit.js';
  * @module
  */
 
-const FR = variety('fr')!;
-const AR = variety('ar-msa')!;
+const FR = variety('fr');
+const AR = variety('ar-msa');
 const D = (n: number): Day => n as Day;
 
 /** A profile in which every listed word is `understood`, in one direction and variety. */
@@ -286,7 +286,7 @@ describe('coverage', () => {
     // Same shape as the direction test, a different key segment and a different invariant: a
     // diglossic learner's dialect and standard are related but separate systems, and merging them
     // is the category error the variety segment exists to prevent.
-    const LEV = variety('ar-levantine')!;
+    const LEV = variety('ar-levantine');
     const msa = knowing(arabicPack, AR, 'recognise', ['سوق'], 'ar');
     const passage = Array.from({ length: 25 }, () => 'سوق').join(' ');
 

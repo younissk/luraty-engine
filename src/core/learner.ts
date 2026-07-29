@@ -54,8 +54,20 @@ import { summarize } from './summary.js';
 export type LearnerContext = {
   /** The language pack. Only `coverage` and the word helpers use it. */
   readonly pack: LanguagePack;
-  /** Which variety these operations address. */
-  readonly variety: Variety;
+  /**
+   * Which variety these operations address. **Defaults to `pack.id`.**
+   *
+   * Pack id and variety are the same string in every pack that exists (`de`, `fr`, `ar-msa`), and
+   * `createPack` now validates the id as a legal variety — so restating it here was duplication
+   * with a live typo hazard: `variety('be')` beside a `de` pack files every unit under an address
+   * nothing ever reads, forever and silently.
+   *
+   * ⚠️ **Pass it explicitly when it genuinely differs.** The case that matters is diglossia: a
+   * Levantine-speaking learner reading MSA has one profile with two varieties in it, and if you
+   * ever run one pack over both, the default would merge her reading and her home dialect into one
+   * unit key — the exact category error the two-variety design exists to prevent.
+   */
+  readonly variety?: Variety;
   /**
    * Which direction these operations address. Defaults to `'recognise'`.
    *
@@ -136,7 +148,10 @@ export type Learner = {
  * not supply its own `priority`.
  */
 export function learner(profile: Profile, context: LearnerContext): Learner {
-  const { pack, variety } = context;
+  const { pack } = context;
+  // No error channel and no throw: `createPack` already rejected an id that is not a legal variety,
+  // so `pack.id` is a `Variety` by type and this default cannot fail.
+  const variety = context.variety ?? pack.id;
   const direction = context.direction ?? 'recognise';
   const next = (p: Profile): Learner => learner(p, context);
 

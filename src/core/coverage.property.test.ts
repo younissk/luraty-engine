@@ -23,8 +23,8 @@ import { KNOWN_AT_STRENGTH } from '../model/unit.js';
 const D = (n: number): Day => n as Day;
 
 const PACKS: readonly { readonly pack: LanguagePack; readonly variety: Variety }[] = [
-  { pack: frenchPack, variety: variety('fr')! },
-  { pack: arabicPack, variety: variety('ar-msa')! },
+  { pack: frenchPack, variety: variety('fr') },
+  { pack: arabicPack, variety: variety('ar-msa') },
 ];
 
 /** The counts, flattened across the union, so a law can state one thing about every variant. */

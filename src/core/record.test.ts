@@ -7,7 +7,7 @@ import { createProfile, advanceTo, hasMet, unitState } from './profile.js';
 import { record } from './record.js';
 import { isKnown, KNOWN_AT_STRENGTH, MAX_STRENGTH, STRENGTH_STEP } from '../model/unit.js';
 
-const AR = variety('ar-msa')!;
+const AR = variety('ar-msa');
 const D = (n: number): Day => day(n)!;
 const suuq: UnitKey = unitKey('recognise', AR, 'سوق');
 const suuqProduce: UnitKey = unitKey('produce', AR, 'سوق');
