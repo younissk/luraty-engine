@@ -19,6 +19,7 @@ export { DIRECTIONS, day, parseUnitKey, unitKey, variety } from './model/ids.js'
 // two sources of one truth get out of step.
 export type { Prior, Strength, UnitState } from './model/unit.js';
 export {
+  effectiveStrength,
   hasStandingClaim,
   isKnown,
   KNOWN_AT_STRENGTH,

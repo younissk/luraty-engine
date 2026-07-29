@@ -213,6 +213,7 @@ describe('the public surface', () => {
       'createProfile',
       'day',
       'deserialize',
+      'effectiveStrength',
       'exposuresFor',
       'hasMet',
       'hasStandingClaim',
