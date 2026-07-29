@@ -7,14 +7,16 @@ docs/
   concepts/    why the engine is shaped the way it is — the invariants a newcomer will break
     determinism.md          the one load-bearing claim, and what it forbids
     the-boundary.md         what may not enter this package, and how that is enforced
-    selection.md            how plan() chooses, with a worked example  ← start here
+    the-learner-model.md    what the engine believes about a learner, field by field  ← start here
+    selection.md            how plan() chooses, with a worked example  ← then here
   guides/      how to do a specific thing, start to finish
     adding-a-language.md    the pack contract as data
     building-a-client.md    where your app ends and the engine begins  ← and here
 ```
 
-**New to the engine?** Read `concepts/selection.md` then `guides/building-a-client.md`. Between them
-they cover what the engine decides, what it refuses to decide, and why.
+**New to the engine?** Read `concepts/the-learner-model.md`, then `concepts/selection.md`, then
+`guides/building-a-client.md`. In order they cover what the engine _believes_, what it _decides_, and
+what it _refuses_ to decide — and every number in them was measured rather than argued.
 
 The **API reference is not written by hand.** When the barrel has real exports, TypeDoc generates it
 from TSDoc comments in the source, so it cannot drift from the code. Hand-written API docs are a
