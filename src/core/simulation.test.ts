@@ -7,6 +7,7 @@ import { arabicPack } from '../testing/packs.js';
 import { coverage } from './coverage.js';
 import { advanceTo, createProfile, unitState } from './profile.js';
 import { record } from './record.js';
+import { isKnown, MAX_STRENGTH } from '../model/unit.js';
 
 /**
  * Ninety days of a synthetic learner, driven through the real loop.
@@ -85,7 +86,7 @@ type Snapshot = { day: number; units: number; understood: number };
 
 function runNinetyDays(seed: number): { history: Snapshot[]; finalUnits: number } {
   const next = rng(seed);
-  let profile = createProfile('ar', 0 as Day);
+  let profile = createProfile('ar', 1 as Day);
   const history: Snapshot[] = [];
 
   for (let d = 1; d <= 90; d++) {
@@ -101,32 +102,64 @@ function runNinetyDays(seed: number): { history: Snapshot[]; finalUnits: number 
       const v = next() < 0.7 ? AR : DIALECT;
       const key = unitKey(direction, v, word);
 
-      // Reading gives passive signals; drills give real retrievals.
-      const tested = next() < 0.5;
+      // Reading gives passive signals; drills give real retrievals. All four kinds occur, because
+      // an invariant checked every day against three quarters of the fold is not checked.
+      const roll = next();
 
       // Producing is harder than recognising, and known-since-childhood words come easier.
       let pKnown = knowsAlready(word) ? 0.85 : 0.35;
       if (direction === 'produce') pKnown -= 0.2;
-      const outcome = next() < pKnown ? 'known' : 'unknown';
 
-      batch.push({ unit: key, outcome, tested, day: d as Day });
+      batch.push(
+        roll < 0.5
+          ? {
+              kind: 'retrieval',
+              unit: key,
+              outcome: next() < pKnown ? 'known' : 'unknown',
+              day: d as Day,
+            }
+          : roll < 0.75
+            ? { kind: 'exposure', unit: key, day: d as Day }
+            : roll < 0.9
+              ? { kind: 'help', unit: key, day: d as Day }
+              : { kind: 'claim', unit: key, day: d as Day },
+      );
     }
 
     profile = record(profile, batch);
 
     // ── Invariants, checked every single day ────────────────────────────────────────────────────
     for (const [key, state] of Object.entries(profile.units)) {
-      expect(state.seen, `${key} seen on day ${String(d)}`).toBeGreaterThan(0);
+      // ⚠️ `seen` may now be 0, and only for a claim: nobody encountered anything, the host
+      // asserted something. Every other kind still increments it.
+      expect(state.seen, `${key} seen on day ${String(d)}`).toBeGreaterThanOrEqual(0);
       expect(state.lastSeen, `${key} lastSeen on day ${String(d)}`).toBeLessThanOrEqual(d);
-      if (state.box === 'understood') {
-        expect(state.confirmedOn, `${key} confirmedOn on day ${String(d)}`).toBeLessThanOrEqual(d);
+      // ⚠️ NESTED BY STRICTNESS, checked on every unit every day. This is the invariant the three
+      // anchors exist to make true, and it is the one that would break first if a variant ever moved
+      // the wrong one — a failure recorded as a proof, or a gloss tap counted as an ask.
+      expect(state.lastAsked, `${key} lastAsked on day ${String(d)}`).toBeLessThanOrEqual(
+        state.lastSeen,
+      );
+      expect(state.lastProven, `${key} lastProven on day ${String(d)}`).toBeLessThanOrEqual(
+        state.lastAsked,
+      );
+      expect(state.strength, `${key} strength on day ${String(d)}`).toBeLessThanOrEqual(
+        MAX_STRENGTH,
+      );
+      // Known implies proven. A unit cannot climb the ladder without a successful retrieval, so a
+      // rung at or above the line with no proof behind it would mean a passive signal promoted.
+      if (isKnown(state)) {
+        expect(
+          state.lastProven,
+          `${key} known but never proven on day ${String(d)}`,
+        ).toBeGreaterThan(0);
       }
     }
 
     history.push({
       day: d,
       units: Object.keys(profile.units).length,
-      understood: Object.values(profile.units).filter((s) => s.box === 'understood').length,
+      understood: Object.values(profile.units).filter((s) => isKnown(s)).length,
     });
   }
 
@@ -159,17 +192,17 @@ describe('ninety days', () => {
 
   it('separates the two varieties — MSA progress is not dialect progress', () => {
     // Diglossia, as an assertion. The same word in two varieties is two units, measured apart.
-    let profile = createProfile('ar', 0 as Day);
+    let profile = createProfile('ar', 1 as Day);
     const msa: UnitKey = unitKey('recognise', AR, 'كتاب');
     const dialect: UnitKey = unitKey('recognise', DIALECT, 'كتاب');
 
     profile = record(profile, [
-      { unit: msa, outcome: 'known', tested: true, day: 1 as Day },
-      { unit: msa, outcome: 'known', tested: true, day: 2 as Day },
+      { kind: 'retrieval', unit: msa, outcome: 'known', day: 1 as Day },
+      { kind: 'retrieval', unit: msa, outcome: 'known', day: 2 as Day },
     ]);
 
-    expect(unitState(profile, msa).box).toBe('understood');
-    expect(unitState(profile, dialect).box).toBe('learning');
+    expect(isKnown(unitState(profile, msa))).toBe(true);
+    expect(isKnown(unitState(profile, dialect))).toBe(false);
     expect(unitState(profile, dialect).seen).toBe(0);
   });
 
@@ -216,7 +249,7 @@ describe('the coverage band, as knowledge grows', () => {
    * the noise was tuned. This answers it with arithmetic.
    */
   function bandsAsWordsAreProven(): readonly string[] {
-    let profile = createProfile('ar', 0 as Day);
+    let profile = createProfile('ar', 1 as Day);
     const bands: string[] = [];
 
     for (const word of VOCAB) {
@@ -226,8 +259,8 @@ describe('the coverage band, as knowledge grows', () => {
       // tokens, and getting this wrong pins the learner at exactly 83% forever.
       const unit = unitKey('recognise', AR, arabicPack.key(word));
       profile = record(profile, [
-        { unit, outcome: 'known', tested: true, day: 1 as Day },
-        { unit, outcome: 'known', tested: true, day: 2 as Day },
+        { kind: 'retrieval', unit, outcome: 'known', day: 1 as Day },
+        { kind: 'retrieval', unit, outcome: 'known', day: 2 as Day },
       ]);
       const result = coverage(profile, arabicPack, {
         text: PASSAGE,
@@ -263,14 +296,14 @@ describe('the coverage band, as knowledge grows', () => {
    * spends **65 of 90 days reporting `'too-hard'`, 9 in band and 16 `'too-easy'`** — swinging from
    * 95 known tokens on day 60 back to 77 by day 90.
    *
-   * That oscillation is `PROMOTE_AFTER_SUCCESSES = 2` plus outright demotion on a single failure:
+   * That oscillation is `KNOWN_AT_STRENGTH = 2` plus outright demotion on a single failure:
    * at 95% accuracy several of twelve words are sitting back in `learning` at any instant, so the
    * measured known-token set churns far more than the learner's actual knowledge does. A selector
    * driven by it would chase easier and easier text for someone who understands the passage —
    * precisely the product failure this engine exists to avoid, arriving through a number that looks
    * rigorous.
    *
-   * `PROMOTE_AFTER_SUCCESSES` is already labelled PROVISIONAL in its own docstring. This is the
+   * `KNOWN_AT_STRENGTH` is already labelled PROVISIONAL in its own docstring. This is the
    * first measurement that gives it a consequence. It is recorded in ADR-0004 as an open question
    * rather than pinned here as an assertion: a test asserting today's churn would have to be edited
    * by whoever fixes it, which teaches nobody anything. The assertions below are the parts that
@@ -278,7 +311,7 @@ describe('the coverage band, as knowledge grows', () => {
    */
   it('reaches the band for a learner who practises, and does not get there smoothly', () => {
     const next = rng(42);
-    let profile = createProfile('ar', 0 as Day);
+    let profile = createProfile('ar', 1 as Day);
     const bands: string[] = [];
     let best = 0;
 
@@ -298,9 +331,9 @@ describe('the coverage band, as knowledge grows', () => {
           (knowsAlready(word) ? 0.7 : 0.3) + 0.06 * unitState(profile, unit).seen,
         );
         batch.push({
+          kind: 'retrieval',
           unit,
           outcome: next() < chance ? 'known' : 'unknown',
-          tested: true,
           day: d as Day,
         });
       }

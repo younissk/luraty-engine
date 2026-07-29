@@ -51,7 +51,7 @@ describe('the profile is deeply readonly', () => {
     // engine returns new values instead of relying on callers to behave. A first draft of this test
     // asserted `p.day` was still 0 afterwards and failed, because it was testing a guarantee
     // TypeScript does not make.
-    const p: Profile = engine.createProfile('ar', 0 as Day);
+    const p: Profile = engine.createProfile('ar', 1 as Day);
 
     // @ts-expect-error units is readonly
     p.units = {};
@@ -69,17 +69,44 @@ describe('the profile is deeply readonly', () => {
   });
 });
 
-describe('unit state is a discriminated union, not an object with optional fields', () => {
-  it('exposes streak only while learning and confirmedOn only once understood', () => {
+describe('illegal states stay unrepresentable — on the axes where they are reachable', () => {
+  it('makes a rung off the ladder a compile error', () => {
+    // ⚠️ `UnitState` STOPPED being a discriminated union in v3, and this is where that trade is
+    // recorded. The old union justified itself by "`streak` is only meaningful while learning and
+    // `confirmedOn` only once understood"; under a rung ladder every field is meaningful in every
+    // state, and a union whose variants carry identical fields is a switch standing where a field
+    // read belongs.
+    //
+    // The guarantee did not go away, it MOVED — onto the two axes where a bad value is actually
+    // reachable, and where a new variant will actually arrive.
     const state = {} as UnitState;
-    if (state.box === 'learning') {
-      expectTypeOf(state.streak).toEqualTypeOf<number>();
-      // @ts-expect-error confirmedOn does not exist on the learning variant
-      expect(state.confirmedOn).toBeUndefined();
+    expectTypeOf(state.strength).toEqualTypeOf<engine.Strength>();
+    // @ts-expect-error 7 is off the ladder — `MAX_STRENGTH` is 6
+    const tooStrong: engine.Strength = 7;
+    // @ts-expect-error a rung is an integer, not a fraction
+    const fractional: engine.Strength = 2.5;
+    expect([tooStrong, fractional]).toHaveLength(2);
+  });
+
+  it('makes a prior a discriminated union, so a new kind of claim is a compiler worklist', () => {
+    const prior = {} as engine.Prior;
+    if (prior.kind === 'claimed') {
+      expectTypeOf(prior.on).toEqualTypeOf<Day>();
     } else {
-      expectTypeOf(state.confirmedOn).toEqualTypeOf<Day>();
-      // @ts-expect-error streak does not exist on the understood variant
-      expect(state.streak).toBeUndefined();
+      // @ts-expect-error `on` does not exist when nothing was claimed
+      expect(prior.on).toBeUndefined();
+    }
+  });
+
+  it('carries an outcome only on the variant that has one', () => {
+    // The rule that made the v2 gloss-tap bug unwritable: "passive and wrong" has no representation,
+    // because asking for help is its own variant and says what the learner actually did.
+    const ev = {} as engine.Evidence;
+    if (ev.kind === 'retrieval') {
+      expectTypeOf(ev.outcome).toEqualTypeOf<engine.Outcome>();
+    } else {
+      // @ts-expect-error only a retrieval has an outcome
+      expect(ev.outcome).toBeUndefined();
     }
   });
 });
@@ -106,7 +133,7 @@ describe('record takes a readonly array', () => {
     // Callers lose nothing — a mutable array is assignable to a readonly one — while `evidence.push`
     // inside the engine becomes a compile error.
     const evidence: Evidence[] = [];
-    expectTypeOf(engine.record).toBeCallableWith(engine.createProfile('ar', 0 as Day), evidence);
+    expectTypeOf(engine.record).toBeCallableWith(engine.createProfile('ar', 1 as Day), evidence);
   });
 });
 
@@ -141,8 +168,12 @@ describe('coverage cannot be read without deciding what it measured', () => {
     }
   });
 
-  it('is a closed three-member union', () => {
-    expectTypeOf<Coverage['kind']>().toEqualTypeOf<'no-words' | 'too-short' | 'measured'>();
+  it('is a closed four-member union', () => {
+    // `'unverified'` is not a fourth way of failing to resolve — it carries BOTH bands, because the
+    // verdict genuinely depends on whether you believe an unchecked self-report.
+    expectTypeOf<Coverage['kind']>().toEqualTypeOf<
+      'no-words' | 'too-short' | 'measured' | 'unverified'
+    >();
     expectTypeOf<engine.Band>().toEqualTypeOf<'too-hard' | 'in-band' | 'too-easy'>();
   });
 
@@ -167,9 +198,13 @@ describe('the public surface', () => {
       'DEFAULT_REVIEW_GAP_DAYS',
       'DIRECTIONS',
       'ENGINE_API_VERSION',
+      'KNOWN_AT_STRENGTH',
+      'MAX_STRENGTH',
       'OVER_ASK',
       'PROFILE_SCHEMA_VERSION',
-      'PROMOTE_AFTER_SUCCESSES',
+      'REASSESS_AFTER_DAYS',
+      'STRENGTH_STEP',
+      'STUCK_AFTER_LAPSES',
       'advanceTo',
       'checkPack',
       'coverage',
@@ -178,10 +213,13 @@ describe('the public surface', () => {
       'day',
       'deserialize',
       'hasMet',
+      'hasStandingClaim',
+      'isKnown',
       'parseUnitKey',
       'plan',
       'record',
       'serialize',
+      'summarize',
       'unitKey',
       'unitState',
       'variety',

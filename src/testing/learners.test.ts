@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { coverage } from '../core/coverage.js';
 import { plan } from '../core/plan.js';
 import { unitKey, variety, type Day } from '../model/ids.js';
+import type { Profile } from '../model/profile.js';
+import { isKnown } from '../model/unit.js';
 
 import {
   beginner,
@@ -15,6 +17,12 @@ import {
 } from './learners.js';
 import { createPack } from '../core/pack.js';
 import { fixtures, germanPack } from './packs.js';
+
+/** Does this profile count the lemma as known, in the recognise direction? */
+function knowsLemma(profile: Profile, lemma: string): boolean {
+  const state = profile.units[unitKey('recognise', V, lemma)];
+  return state !== undefined && isKnown(state);
+}
 
 /**
  * The simulated learners, checked for the properties they claim to have.
@@ -34,7 +42,7 @@ function counts(profile: ReturnType<typeof learner>) {
   let produce = 0;
   let met = 0;
   for (const [key, state] of Object.entries(profile.units)) {
-    if (state.box === 'understood') {
+    if (isKnown(state)) {
       if (key.startsWith('produce:')) produce++;
       else recognise++;
     } else met++;
@@ -67,8 +75,7 @@ describe('learner archetypes', () => {
     // is a prefix of the frequency list is a classroom learner wearing the wrong name.
     const vocab = vocabularyOf(germanPack, fixtures.germanData.frequency);
     const profile = heritageSpeaker(germanPack, { ...opts, seed: 42 });
-    const knows = (lemma: string) =>
-      profile.units[unitKey('recognise', V, lemma)]?.box === 'understood';
+    const knows = (lemma: string) => knowsLemma(profile, lemma);
 
     // Somewhere in the common half there is a word they do NOT know…
     const commonHalf = vocab.slice(0, Math.floor(vocab.length / 2));
@@ -89,8 +96,7 @@ describe('learner archetypes', () => {
     // than a sentence in an ADR.
     const vocab = vocabularyOf(germanPack, fixtures.germanData.frequency);
     const profile = classroomLearner(germanPack, { ...opts, seed: 42, words: 100 });
-    const knows = (lemma: string) =>
-      profile.units[unitKey('recognise', V, lemma)]?.box === 'understood';
+    const knows = (lemma: string) => knowsLemma(profile, lemma);
 
     expect(vocab.slice(0, 100).every(knows), 'a gap inside the prefix').toBe(true);
     expect(vocab.slice(120, 200).some(knows), 'knowledge past the prefix').toBe(false);
@@ -122,7 +128,7 @@ describe('learner archetypes', () => {
     // can be created in. The comment is the finding.
     const profile = beginner(germanPack, opts);
     expect(Object.keys(profile.units)).toHaveLength(0);
-    expect(plan(profile, { day: D(200), maxItems: 10 }).items).toHaveLength(0);
+    expect(plan(profile, { day: D(200), maxItems: 10, maxNew: 10 }).items).toHaveLength(0);
   });
 
   it('spreads last-proven days rather than stamping them all the same', () => {
@@ -135,13 +141,13 @@ describe('learner archetypes', () => {
     const profile = heritageSpeaker(germanPack, { ...opts, seed: 42 });
     const proven = new Set<number>();
     for (const state of Object.values(profile.units)) {
-      proven.add(state.box === 'understood' ? state.confirmedOn : state.lastProven);
+      proven.add(isKnown(state) ? state.lastProven : state.lastProven);
     }
     expect(proven.size).toBeGreaterThan(5);
 
     // And the scheduler really does see a range to choose from.
     const spread = new Set(
-      plan(profile, { day: D(200), maxItems: 500 }).items.map((i) => i.daysWaiting),
+      plan(profile, { day: D(200), maxItems: 500, maxNew: 500 }).items.map((i) => i.daysWaiting),
     );
     expect(spread.size).toBeGreaterThan(5);
   });
@@ -224,7 +230,7 @@ describe('learner archetypes', () => {
     let plainKnown = 0;
     for (let seed = 1; seed <= 30; seed++) {
       const p = heritageSpeaker(testPack, { ...opts, seed, frequency });
-      const knows = (l: string) => p.units[unitKey('recognise', V, l)]?.box === 'understood';
+      const knows = (l: string) => knowsLemma(p, l);
       formalKnown += formalWords.filter(knows).length;
       plainKnown += plainWords.filter(knows).length;
     }
@@ -262,7 +268,7 @@ describe('learner archetypes', () => {
     const fresh = heritageSpeaker(germanPack, { ...far, seed: 42 });
 
     const meanWait = (profile: ReturnType<typeof learner>) => {
-      const items = plan(profile, { day: D(5000), maxItems: 100000 }).items;
+      const items = plan(profile, { day: D(5000), maxItems: 100000, maxNew: 100000 }).items;
       return items.reduce((sum, i) => sum + i.daysWaiting, 0) / Math.max(items.length, 1);
     };
 

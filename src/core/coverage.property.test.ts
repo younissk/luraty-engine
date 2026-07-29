@@ -11,7 +11,8 @@ import { arabicPack, frenchPack } from '../testing/packs.js';
 
 import { coverage } from './coverage.js';
 import { createProfile } from './profile.js';
-import { PROMOTE_AFTER_SUCCESSES, record } from './record.js';
+import { record } from './record.js';
+import { KNOWN_AT_STRENGTH } from '../model/unit.js';
 
 /**
  * Laws for {@link coverage}.
@@ -63,16 +64,28 @@ function knowing(v: Variety, lemmas: readonly Lemma[], language: string): Profil
   const evidence: Evidence[] = [];
   for (const lemma of lemmas) {
     const unit = unitKey('recognise', v, lemma);
-    for (let i = 0; i < PROMOTE_AFTER_SUCCESSES; i++) {
-      evidence.push({ unit, outcome: 'known', tested: true, day: D(0) });
+    for (let i = 0; i < KNOWN_AT_STRENGTH; i++) {
+      evidence.push({ kind: 'retrieval', unit, outcome: 'known', day: D(1) });
     }
   }
-  return record(createProfile(language, D(0)), evidence);
+  return record(createProfile(language, D(1)), evidence);
+}
+
+/** A profile whose only knowledge is unchecked claims — the output of a placement. */
+function claiming(v: Variety, lemmas: readonly Lemma[], language: string): Profile {
+  return record(
+    createProfile(language, D(1)),
+    lemmas.map((lemma): Evidence => ({
+      kind: 'claim',
+      unit: unitKey('recognise', v, lemma),
+      day: D(1),
+    })),
+  );
 }
 
 describe.each(PACKS)('coverage laws — $pack.id', ({ pack, variety: v }) => {
   const query = (text: string) => ({ text, variety: v, direction: 'recognise' as const });
-  const empty = createProfile(pack.id, D(0));
+  const empty = createProfile(pack.id, D(1));
 
   // ── P0 ────────────────────────────────────────────────────────────────────────────────────────
   it('never throws, on anything at all', () => {
@@ -188,5 +201,116 @@ describe.each(PACKS)('coverage laws — $pack.id', ({ pack, variety: v }) => {
     );
 
     expect(observed).toEqual(new Set(['too-hard', 'in-band', 'too-easy']));
+  });
+
+  it('returns `unverified` exactly when the two readings disagree, and never otherwise', () => {
+    // ⚠️ THE LAW THAT DEFINES THE FOURTH KIND. `'unverified'` is not "there are some claims here" —
+    // it is "the ANSWER CHANGES depending on whether you believe her". That trigger needs no
+    // threshold constant, which is the whole reason it was chosen: there is no number to tune and
+    // nothing to get wrong later.
+    //
+    // The corollary is the valuable half: `'measured'` may legitimately carry `claimedTokens > 0`,
+    // and when it does it means something STRONGER than it used to — this verdict is robust to
+    // whether you trust her.
+    const observed = new Set<string>();
+
+    fc.assert(
+      fc.property(
+        passageFor(pack.id, 100),
+        fc.nat({ max: 100 }),
+        fc.nat({ max: 100 }),
+        (text, provenWanted, claimedWanted) => {
+          const lemmas = lemmasOf(pack, text);
+          const proven = lemmas.slice(0, Math.min(provenWanted, lemmas.length));
+          const claimed = lemmas.slice(proven.length, proven.length + claimedWanted);
+
+          let profile = knowing(v, proven, pack.id);
+          profile = record(
+            profile,
+            claimed.map((lemma): Evidence => ({
+              kind: 'claim',
+              unit: unitKey('recognise', v, lemma),
+              day: D(1),
+            })),
+          );
+
+          const result = coverage(profile, pack, query(text));
+          observed.add(result.kind);
+
+          if (result.kind === 'unverified') {
+            // Both readings are carried, and they genuinely differ — or this variant is a lie.
+            expect(result.strict).not.toBe(result.withClaims);
+            expect(result.claimedTokens).toBeGreaterThan(0);
+            // Claims are unknown under the strict reading, which is what `unknownLemmas` has always
+            // meant — so they appear there too, and `claimedLemmas` is the subset worth drilling.
+            expect(result.claimedLemmas.length).toBeLessThanOrEqual(result.unknownLemmas.length);
+            expect(result.knownTokens + result.unknownTokens).toBe(result.runningTokens);
+          }
+          if (result.kind === 'measured') {
+            // Proven knowledge only. A claim never inflates this number.
+            expect(result.knownTokens).toBe(result.runningTokens - result.unknownTokens);
+          }
+        },
+      ),
+    );
+
+    // The vacuity guard for the new arm: a run that never produced an `'unverified'` would leave
+    // every assertion above unexercised while staying green.
+    expect(observed.has('unverified'), 'never generated an unverified passage').toBe(true);
+    expect(observed.has('measured'), 'never generated a settled passage').toBe(true);
+  });
+
+  it('never counts an unchecked claim as proven knowledge', () => {
+    // The epistemic line the whole design rests on. Self-report correlates about r ≈ .39 with tested
+    // proficiency, so a claim may inform a verdict — visibly, on the `kind` axis — but it must never
+    // be laundered into `knownTokens`.
+    fc.assert(
+      fc.property(passageFor(pack.id, 100), (text) => {
+        const result = coverage(claiming(v, lemmasOf(pack, text), pack.id), pack, query(text));
+        const c = counts(result);
+        expect(c.known).toBe(0);
+      }),
+    );
+  });
+
+  it('never asks the band classifier about a negative number of unknowns', () => {
+    // ⚠️ THE ARITHMETIC RISK IN THE SECOND CLASSIFICATION. `coverage()` classifies twice, and the
+    // generous pass is `classify(runningTokens, unknownTokens - claimedTokens)`. If `claimedTokens`
+    // could ever exceed `unknownTokens`, that argument goes negative — and the band test is a pair
+    // of integer multiplications with no guard, so it would return a confident, wrong verdict
+    // rather than failing.
+    //
+    // It cannot, and the reason is one line in the verdict order: a unit that is BOTH claimed and
+    // proven resolves as `'known'`, so the three buckets are disjoint and `claimed <= unknown`
+    // holds by construction. This law is here because that safety is a consequence of an ordering
+    // decision several lines away, which is exactly the kind of thing a later edit breaks silently.
+    fc.assert(
+      fc.property(
+        passageFor(pack.id, 60),
+        fc.nat({ max: 60 }),
+        fc.nat({ max: 60 }),
+        (text, a, b) => {
+          const lemmas = lemmasOf(pack, text);
+          const proven = lemmas.slice(0, Math.min(a, lemmas.length));
+          const claimed = lemmas.slice(Math.max(0, proven.length - b));
+
+          let profile = knowing(v, proven, pack.id);
+          profile = record(
+            profile,
+            claimed.map((lemma): Evidence => ({
+              kind: 'claim',
+              unit: unitKey('recognise', v, lemma),
+              day: D(1),
+            })),
+          );
+
+          const r = coverage(profile, pack, query(text));
+          if (r.kind === 'no-words') return;
+          expect(r.claimedTokens).toBeGreaterThanOrEqual(0);
+          expect(r.claimedTokens).toBeLessThanOrEqual(r.unknownTokens);
+          expect(r.knownTokens + r.unknownTokens).toBe(r.runningTokens);
+        },
+      ),
+    );
   });
 });

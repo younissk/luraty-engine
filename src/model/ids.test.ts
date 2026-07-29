@@ -35,10 +35,19 @@ describe('variety', () => {
 });
 
 describe('day', () => {
-  it('accepts whole days from zero up', () => {
-    expect(day(0)).toBe(0);
+  it('accepts whole days from one up, and REFUSES zero', () => {
+    // ⚠️ ZERO IS RESERVED, and this test is the reason the reservation is real rather than a
+    // convention. Every date the engine stores uses `0` to mean "never" — it is the identity element
+    // of the max-fold in `record`. That only works if no genuine day is also zero.
+    //
+    // It was measured not to be. A host whose epoch is "days since install" naturally starts at 0,
+    // and then a word asked on the install day reads as NEVER ASKED: `plan()` labels it `'new'`
+    // rather than `'review'`, a claim disproved that day still counts as standing, and `summarize()`
+    // files it under the wrong bucket. Six defects, one ambiguity, all invisible to a host that
+    // picked the obvious epoch.
+    expect(day(0)).toBeUndefined();
     expect(day(1)).toBe(1);
-    expect(day(9999)).toBe(9999);
+    expect(day(365)).toBe(365);
   });
 
   it('rejects anything that is not a whole day', () => {

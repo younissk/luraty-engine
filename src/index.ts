@@ -14,11 +14,32 @@ export type { Day, Direction, UnitKey, UnitParts, Variety } from './model/ids.js
 export { DIRECTIONS, day, parseUnitKey, unitKey, variety } from './model/ids.js';
 
 // ── What the engine believes ────────────────────────────────────────────────────────────────────
-export type { Box, Learning, Understood, UnitState } from './model/unit.js';
+// One flat shape per unit, plus a rung ladder. `Learning | Understood | Box` are GONE: under a
+// ladder the box is derived (`strength >= KNOWN_AT_STRENGTH`), and storing a derived value is how
+// two sources of one truth get out of step.
+export type { Prior, Strength, UnitState } from './model/unit.js';
+export {
+  hasStandingClaim,
+  isKnown,
+  KNOWN_AT_STRENGTH,
+  MAX_STRENGTH,
+  STRENGTH_STEP,
+} from './model/unit.js';
 export type { Profile } from './model/profile.js';
 
 // ── What changes it ─────────────────────────────────────────────────────────────────────────────
-export type { Evidence, Outcome } from './model/evidence.js';
+// A four-member union on what the LEARNER did — proved it, met it, asked for help, or was said to
+// know it. Not on what the exercise was; that rule is why a speaking exercise can be added later
+// without the core changing.
+export type {
+  Claim,
+  Evidence,
+  EvidenceKind,
+  Exposure,
+  Help,
+  Outcome,
+  Retrieval,
+} from './model/evidence.js';
 
 // ── Language packs ──────────────────────────────────────────────────────────────────────────────
 // The engine knows no language. Everything language-specific arrives through this contract, and a
@@ -70,12 +91,32 @@ export { coverage } from './core/coverage.js';
 // What to do next, plus a DESCRIPTION of the content it needs — the engine cannot fetch anything,
 // so the host reads the request and goes and gets it. That is what makes a scheduler testable with
 // no database, and why there is no content port here.
-export type { ContentRequest, PlanOptions, Session, SessionItem } from './model/session.js';
-export { DEFAULT_REVIEW_GAP_DAYS, OVER_ASK, plan } from './core/plan.js';
+export type {
+  ContentRequest,
+  PlanOptions,
+  Reassess,
+  Session,
+  SessionItem,
+  Why,
+} from './model/session.js';
+export {
+  DEFAULT_REVIEW_GAP_DAYS,
+  OVER_ASK,
+  plan,
+  REASSESS_AFTER_DAYS,
+  STUCK_AFTER_LAPSES,
+} from './core/plan.js';
+
+// ── Reporting ───────────────────────────────────────────────────────────────────────────────────
+// The engine stores no history. `summarize` is a fixed-size snapshot the HOST persists and diffs —
+// "can she read more than in March?" is a subtraction of two of these. See `Summary` for why the
+// log lives on the host's side of the boundary, and for the obligation that creates.
+export type { Summary, SummaryScope } from './model/summary.js';
+export { summarize } from './core/summary.js';
 
 // ── Operations ──────────────────────────────────────────────────────────────────────────────────
 export { advanceTo, createProfile, hasMet, unitState } from './core/profile.js';
-export { PROMOTE_AFTER_SUCCESSES, record } from './core/record.js';
+export { record } from './core/record.js';
 export { deserialize, serialize } from './core/persist.js';
 
 /**
@@ -84,4 +125,4 @@ export { deserialize, serialize } from './core/persist.js';
  * Pinned to `package.json` by `src/boundary.test.ts`, so it cannot drift into a comfortable lie.
  * Bump it in the same commit as any breaking change to the exports above.
  */
-export const ENGINE_API_VERSION = '0.3.0';
+export const ENGINE_API_VERSION = '0.4.0';

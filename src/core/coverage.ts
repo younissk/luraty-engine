@@ -1,9 +1,8 @@
-import { assertNever } from '../internal/assert.js';
 import { COVERAGE_BAND, type Band, type Coverage, type CoverageQuery } from '../model/coverage.js';
 import { unitKey } from '../model/ids.js';
 import type { LanguagePack, Lemma } from '../model/pack.js';
 import type { Profile } from '../model/profile.js';
-import type { UnitState } from '../model/unit.js';
+import { hasStandingClaim, isKnown } from '../model/unit.js';
 
 import { unitState } from './profile.js';
 
@@ -12,27 +11,6 @@ import { unitState } from './profile.js';
  *
  * @module
  */
-
-/**
- * Is this unit known, for the purpose of coverage?
- *
- * ⚠️ A switch and not `state.box === 'understood'`. `Box` is a two-member union today; an equality
- * test would silently classify a future third box as unknown, moving every learner's coverage
- * number with no compile error anywhere. The switch turns that edit into a worklist the compiler
- * writes for you.
- */
-function isKnown(state: UnitState): boolean {
-  switch (state.box) {
-    case 'learning':
-      // Including at `streak: PROMOTE_AFTER_SUCCESSES - 1`. There is no partial credit here,
-      // because half a running token is not a thing the band can be a claim about.
-      return false;
-    case 'understood':
-      return true;
-    default:
-      return assertNever(state, 'UnitState');
-  }
-}
 
 /**
  * Classify a token count against the band. Integers only — see {@link COVERAGE_BAND}.
@@ -80,12 +58,16 @@ export function coverage(profile: Profile, pack: LanguagePack, query: CoverageQu
 
   let runningTokens = 0;
   let knownTokens = 0;
+  let claimedTokens = 0;
   let unkeyableTokens = 0;
   let ignoredTokens = 0;
   const unknownLemmas: Lemma[] = [];
+  const claimedLemmas: Lemma[] = [];
+  /** What one lookup found. Three-valued, because claimed is neither known nor simply unknown. */
+  type Verdict = 'known' | 'claimed' | 'unknown';
   // Doubles as the memo for the profile lookup, so a word repeated 40 times costs one lookup. The
   // insertion order of a Map is the first-appearance order the result promises.
-  const seen = new Map<Lemma, boolean>();
+  const seen = new Map<Lemma, Verdict>();
 
   for (const surface of surfaces) {
     // Checked BEFORE keying: the caller marked a raw surface, and keying would lowercase it.
@@ -106,13 +88,20 @@ export function coverage(profile: Profile, pack: LanguagePack, query: CoverageQu
 
     runningTokens += 1;
 
-    let known = seen.get(lemma);
-    if (known === undefined) {
-      known = isKnown(unitState(profile, unitKey(query.direction, query.variety, lemma)));
-      seen.set(lemma, known);
-      if (!known) unknownLemmas.push(lemma);
+    let verdict = seen.get(lemma);
+    if (verdict === undefined) {
+      const state = unitState(profile, unitKey(query.direction, query.variety, lemma));
+      // ⚠️ Order matters, and only in one direction: a unit can be BOTH claimed and proven, because
+      // a claim survives being checked. Proof wins — it is the stronger fact, and counting a
+      // confirmed word as merely claimed would keep the text `'unverified'` forever.
+      verdict = isKnown(state) ? 'known' : hasStandingClaim(state) ? 'claimed' : 'unknown';
+      seen.set(lemma, verdict);
+      // Both are unknown under the STRICT reading, which is what `unknownLemmas` has always meant.
+      if (verdict !== 'known') unknownLemmas.push(lemma);
+      if (verdict === 'claimed') claimedLemmas.push(lemma);
     }
-    if (known) knownTokens += 1;
+    if (verdict === 'known') knownTokens += 1;
+    if (verdict === 'claimed') claimedTokens += 1;
   }
 
   const unknownTokens = runningTokens - knownTokens;
@@ -131,10 +120,34 @@ export function coverage(profile: Profile, pack: LanguagePack, query: CoverageQu
       runningTokens,
       knownTokens,
       unknownTokens,
+      claimedTokens,
       unkeyableTokens,
       ignoredTokens,
       unknownLemmas,
       needsMoreTokens: COVERAGE_BAND.minTokens - runningTokens,
+    };
+  }
+
+  // ⚠️ CLASSIFY TWICE. `strict` believes only what she has proven; `withClaims` also believes what
+  // she said. When they agree the answer does not depend on trusting her, and saying `'measured'` is
+  // honest. When they disagree, no single band is honest — so both are returned and the caller
+  // decides. See {@link Coverage}.
+  const strict = classify(runningTokens, unknownTokens);
+  const withClaims = classify(runningTokens, unknownTokens - claimedTokens);
+
+  if (strict !== withClaims) {
+    return {
+      kind: 'unverified',
+      runningTokens,
+      knownTokens,
+      unknownTokens,
+      claimedTokens,
+      unkeyableTokens,
+      ignoredTokens,
+      unknownLemmas,
+      strict,
+      withClaims,
+      claimedLemmas,
     };
   }
 
@@ -143,9 +156,10 @@ export function coverage(profile: Profile, pack: LanguagePack, query: CoverageQu
     runningTokens,
     knownTokens,
     unknownTokens,
+    claimedTokens,
     unkeyableTokens,
     ignoredTokens,
     unknownLemmas,
-    band: classify(runningTokens, unknownTokens),
+    band: strict,
   };
 }

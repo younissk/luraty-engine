@@ -43,11 +43,25 @@ export const DIRECTIONS: readonly Direction[] = ['recognise', 'produce'];
 export type Variety = Brand<string, 'Variety'>;
 
 /**
- * A day number. Whole days since an epoch the host chooses.
+ * A day number. Whole days since an epoch the host chooses, **starting at 1**.
  *
  * A day and not a timestamp, deliberately. Everything this engine schedules happens at day
  * granularity, and a number that cannot express "3:47pm" is a number nobody can accidentally make
  * a decision depend on the time of day.
+ *
+ * ⚠️ **DAY 0 IS RESERVED AND IS NOT A LEGAL DAY.** Zero is the "never" sentinel for every date the
+ * engine stores — `lastSeen`, `lastAsked`, `lastProven`, and the day a claim was made — because a
+ * max-fold needs an identity element and `0` is it.
+ *
+ * That works only if no *real* day can also be zero, and it was measured not to. A host whose epoch
+ * is "days since install" naturally starts at 0, and then a word asked on the install day reads as
+ * NEVER ASKED: `plan()` labels it `'new'` instead of `'review'`, a claim disproved that day still
+ * counts as standing, and `summarize()` files it under the wrong bucket. Six separate defects, one
+ * ambiguity — and all of them invisible to a host that picked the obvious epoch.
+ *
+ * `Prior` avoided this by being a discriminated union rather than a sentinel. Making every date a
+ * union would cost far more than it buys; reserving one integer costs a sentence. So the constructor
+ * refuses `0`, and a host that wants "days since install" starts counting at 1.
  */
 export type Day = Brand<number, 'Day'>;
 
@@ -75,11 +89,25 @@ export function variety(id: string): Variety | undefined {
   return id as Variety;
 }
 
-/** Build a {@link Day}. Rejects negatives and non-integers. */
+/**
+ * Build a {@link Day}. Rejects negatives, non-integers, and **zero**.
+ *
+ * Zero is the never-sentinel — see {@link Day}. Rejecting it here is what makes that sentinel
+ * unambiguous, and it is the same discipline as {@link unitKey} being the only blessed constructor:
+ * the check has to live somewhere a caller cannot skip.
+ */
 export function day(n: number): Day | undefined {
-  if (!Number.isInteger(n) || n < 0) return undefined;
+  if (!Number.isInteger(n) || n < NEVER + 1) return undefined;
   return n as Day;
 }
+
+/**
+ * The day that means "never".
+ *
+ * Exported so that nothing reimplements `=== 0` and so the meaning is greppable. It is deliberately
+ * NOT constructible through {@link day} — that function rejects it, which is the whole point.
+ */
+export const NEVER = 0 as Day;
 
 /**
  * Build a {@link UnitKey}.

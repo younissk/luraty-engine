@@ -2,28 +2,28 @@ import { describe, expect, it } from 'vitest';
 
 import { unitKey, variety, type Day } from '../model/ids.js';
 import { PROFILE_SCHEMA_VERSION } from '../model/wire.js';
+import { isKnown, KNOWN_AT_STRENGTH, MAX_STRENGTH } from '../model/unit.js';
 
 import { deserialize, serialize } from './persist.js';
 import { advanceTo, createProfile, unitState } from './profile.js';
 import { record } from './record.js';
 
 /**
- * A frozen v1 profile, captured while v1 was still the current format — and the v2 golden that
- * replaced it.
+ * Every wire format this engine has ever written, frozen at the moment it stopped being current.
  *
- * ⚠️ THIS FILE HAD A DEADLINE, AND IT PAID OFF.
+ * ⚠️ THIS FILE HAS NOW PAID OFF TWICE, AND THE RULE IS THE SAME BOTH TIMES.
  *
- * {@link FROZEN_V1} can only be produced by code that writes v1. The moment `serialize()` started
- * emitting v2 — which it now does — no code path in this repo could ever generate a genuine v1 blob
- * again, and the v1→v2 migration would have been tested against a hand-typed guess at what v1
- * looked like.
+ * {@link FROZEN_V1} can only be produced by code that writes v1; {@link FROZEN_V2} only by code that
+ * writes v2. `serialize()` writes v3, so no code path in this repo can generate either one again.
+ * Regenerating them means hand-typing a guess at what an old format looked like — which is exactly
+ * the failure `persist.ts` names: *a migration that has never run on realistic old data is not a
+ * migration, it is a hope.*
  *
- * That is the file's own prediction, written before v2 existed: *"WHEN A v2 ARRIVES: do not
- * regenerate this. It becomes the input fixture for the v1→v2 migration test, and its whole value
- * is that it predates the change."* This is that moment. The string below is untouched.
- *
- * `persist.ts` states the rule this exists to keep: *a migration that has never run on realistic
- * old data is not a migration, it is a hope.*
+ * The file predicted its own second use before v2 existed: *"WHEN A v2 ARRIVES: do not regenerate
+ * this. It becomes the input fixture for the v1→v2 migration test, and its whole value is that it
+ * predates the change."* v2 then repeated the instruction for v3. Both strings below are untouched,
+ * and a v1 blob now traverses TWO migration steps to reach the current shape — which is the whole
+ * argument for migrating stepwise rather than writing one v1→v3 jump.
  *
  * @module
  */
@@ -38,8 +38,8 @@ const FROZEN_V1 =
   ']}';
 
 /**
- * ⚠️ FROZEN. The same learner, as v2 writes them. Same rule: a deliberate diff here is a schema
- * change — bump the version, write the migration, keep this string as its input.
+ * ⚠️ FROZEN. Real v2 output, captured 2026-07-29 before the v3 change. Never regenerate — it is now
+ * the input fixture for the v2→v3 migration, exactly as v1 became v2's.
  */
 const FROZEN_V2 =
   '{"v":2,"language":"ar","day":42,"units":[' +
@@ -49,38 +49,55 @@ const FROZEN_V2 =
   '["recognise:fr:automne",{"box":"learning","seen":1,"lastSeen":12,"streak":1,"lastProven":12}]' +
   ']}';
 
+/**
+ * ⚠️ FROZEN. The same learner as v3 writes them. Same rule as its two predecessors: a deliberate
+ * diff here is a schema change — bump the version, write the migration, keep this string as its
+ * input.
+ *
+ * Read against `FROZEN_V2`, this string IS the v3 change: the box is gone, `streak` became
+ * `strength` on a bounded ladder, one anchor became three, and every unit carries a `prior` and a
+ * `lapses` count.
+ */
+const FROZEN_V3 =
+  '{"v":3,"language":"ar","day":42,"units":[' +
+  '["produce:ar-msa:سوق",{"seen":1,"lastSeen":5,"lastAsked":5,"lastProven":0,"prior":null,"strength":0,"lapses":1}],' +
+  '["recognise:ar-msa:سوق",{"seen":2,"lastSeen":5,"lastAsked":5,"lastProven":5,"prior":null,"strength":2,"lapses":0}],' +
+  '["recognise:ar-msa:كتاب",{"seen":1,"lastSeen":9,"lastAsked":0,"lastProven":0,"prior":null,"strength":0,"lapses":0}],' +
+  '["recognise:fr:automne",{"seen":1,"lastSeen":12,"lastAsked":12,"lastProven":12,"prior":null,"strength":1,"lapses":0}]' +
+  ']}';
+
 const AR = variety('ar-msa')!;
 const FR = variety('fr')!;
 const D = (n: number): Day => n as Day;
 
 /** The exact sequence that produced both goldens. Changing it invalidates them. */
 function goldenProfile() {
-  let p = createProfile('ar', D(0));
+  let p = createProfile('ar', D(1));
   p = advanceTo(p, D(42));
   return record(p, [
-    { unit: unitKey('recognise', AR, 'سوق'), outcome: 'known', tested: true, day: D(1) },
-    { unit: unitKey('recognise', AR, 'سوق'), outcome: 'known', tested: true, day: D(5) },
-    { unit: unitKey('produce', AR, 'سوق'), outcome: 'unknown', tested: true, day: D(5) },
-    { unit: unitKey('recognise', AR, 'كتاب'), outcome: 'known', tested: false, day: D(9) },
-    { unit: unitKey('recognise', FR, 'automne'), outcome: 'known', tested: true, day: D(12) },
+    { kind: 'retrieval', unit: unitKey('recognise', AR, 'سوق'), outcome: 'known', day: D(1) },
+    { kind: 'retrieval', unit: unitKey('recognise', AR, 'سوق'), outcome: 'known', day: D(5) },
+    { kind: 'retrieval', unit: unitKey('produce', AR, 'سوق'), outcome: 'unknown', day: D(5) },
+    { kind: 'exposure', unit: unitKey('recognise', AR, 'كتاب'), day: D(9) },
+    { kind: 'retrieval', unit: unitKey('recognise', FR, 'automne'), outcome: 'known', day: D(12) },
   ]);
 }
 
 describe('wire format', () => {
-  it('serializes byte-for-byte as v2 was frozen', () => {
+  it('serializes byte-for-byte as v3 was frozen', () => {
     // A behaviour golden, not a unit test. Every example test in this package is written in terms
     // of the rules, so a change to a rule changes the tests with it and everything stays green.
     // This string cannot rationalise: it is what the engine produced on a specific day, and a diff
     // against it is a human decision about whether the change was intended.
-    expect(serialize(goldenProfile())).toBe(FROZEN_V2);
+    expect(serialize(goldenProfile())).toBe(FROZEN_V3);
   });
 
   it('is the version this test claims it is', () => {
-    expect(PROFILE_SCHEMA_VERSION).toBe(2);
+    expect(PROFILE_SCHEMA_VERSION).toBe(3);
   });
 });
 
-describe('the v1 to v2 migration', () => {
+describe('the migration chain', () => {
   it('reads a real v1 blob written before v2 existed', () => {
     const loaded = deserialize(FROZEN_V1);
     expect(loaded.ok).toBe(true);
@@ -88,8 +105,8 @@ describe('the v1 to v2 migration', () => {
 
     expect(loaded.value.language).toBe('ar');
     expect(loaded.value.day).toBe(42);
-    expect(unitState(loaded.value, unitKey('recognise', AR, 'سوق')).box).toBe('understood');
-    expect(unitState(loaded.value, unitKey('produce', AR, 'سوق')).box).toBe('learning');
+    expect(isKnown(unitState(loaded.value, unitKey('recognise', AR, 'سوق')))).toBe(true);
+    expect(isKnown(unitState(loaded.value, unitKey('produce', AR, 'سوق')))).toBe(false);
   });
 
   it('migrates lastProven to NEVER, not to lastSeen', () => {
@@ -110,10 +127,13 @@ describe('the v1 to v2 migration', () => {
     // `recognise:fr:automne` was last SEEN on day 12 in v1. The migration must not read that as
     // proof — this is the assertion that fails if someone "simplifies" the migration later.
     const automne = unitState(loaded.value, unitKey('recognise', FR, 'automne'));
-    expect(automne.box).toBe('learning');
-    if (automne.box !== 'learning') return;
+    expect(isKnown(automne)).toBe(false);
     expect(automne.lastSeen).toBe(12);
     expect(automne.lastProven).toBe(0);
+    // ⚠️ AND THE SAME TEST ONE FIELD ALONG. v2→v3 must not import `lastSeen` into `lastAsked`
+    // either, for the identical reason: it is a monotone max-fold, so a contaminated value can
+    // never be corrected downward. This unit was SEEN on day 12 and never asked about at all.
+    expect(automne.lastAsked).toBe(0);
   });
 
   it('leaves understood units untouched — they already carry their proven day', () => {
@@ -122,9 +142,20 @@ describe('the v1 to v2 migration', () => {
     if (!loaded.ok) return;
 
     const souq = unitState(loaded.value, unitKey('recognise', AR, 'سوق'));
-    expect(souq.box).toBe('understood');
-    if (souq.box !== 'understood') return;
-    expect(souq.confirmedOn).toBe(5);
+    expect(isKnown(souq)).toBe(true);
+    expect(souq.lastProven).toBe(5);
+    // v2's `confirmedOn` was simultaneously the last proof AND the last ask — the understood box
+    // could only be entered or refreshed by a real retrieval. This is the one place the two anchors
+    // provably coincide, so v3 takes both from it with no guessing.
+    expect(souq.lastAsked).toBe(5);
+    // ⚠️ THE KNOWN RUNG, NOT THE CEILING. v2 stored no repetition count, so this value has to be
+    // invented, and the two candidates fail differently. `MAX_STRENGTH` would claim maximal
+    // robustness for a word proven exactly twice — it would then survive three consecutive failures
+    // before ceasing to count as known, inflating coverage on a fabricated basis. That is
+    // under-drilling on invented evidence, the worst combination available. The known rung is the
+    // MINIMUM value preserving v2's own verdict, so nobody's coverage number moves on migration,
+    // while leaving the unit maximally fragile: one failed drill takes it to zero.
+    expect(souq.strength).toBe(KNOWN_AT_STRENGTH);
   });
 
   it('upgrades a v1 blob to bytes identical to native v2 output', () => {
@@ -139,7 +170,7 @@ describe('the v1 to v2 migration', () => {
     // (`automne` was proven on day 12, and v1 had nowhere to record it). What must hold is that the
     // result is well-formed v2 and round-trips.
     const reserialized = serialize(loaded.value);
-    expect(reserialized).toContain('"v":2');
+    expect(reserialized).toContain('"v":3');
     expect(reserialized).toContain('"lastProven":0');
 
     const again = deserialize(reserialized);
@@ -158,5 +189,144 @@ describe('the v1 to v2 migration', () => {
     if (loaded.ok) return;
     expect(loaded.error.kind).toBe('malformed');
     expect(loaded.error.message).toContain('recognise:ar-msa:x');
+  });
+
+  it('reads a real v2 blob written before v3 existed', () => {
+    const loaded = deserialize(FROZEN_V2);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(loaded.value.language).toBe('ar');
+    expect(loaded.value.day).toBe(42);
+    expect(Object.keys(loaded.value.units)).toHaveLength(4);
+  });
+
+  it('migrates lastAsked from lastProven, not from lastSeen', () => {
+    // ⚠️ THE ONE REAL DECISION IN v2→v3, AND THE OBVIOUS ASSERTION FOR IT IS VACUOUS.
+    //
+    // `recognise:fr:automne` is the unit a reader reaches for, and in FROZEN_V2 it has
+    // `lastSeen: 12` AND `lastProven: 12` — so it cannot distinguish the two mappings at all. It is
+    // asserted below anyway, because it pins the NON-zero path, but it must not be the only one.
+    //
+    // These two discriminate: both were seen and neither was ever proven.
+    const loaded = deserialize(FROZEN_V2);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+
+    // Seen on day 5 (a failed retrieval), never proven. `lastSeen` would give 5.
+    const produceSouq = unitState(loaded.value, unitKey('produce', AR, 'سوق'));
+    expect(produceSouq.lastSeen).toBe(5);
+    expect(produceSouq.lastAsked).toBe(0);
+
+    // Seen on day 9 (passive), never asked, never proven. `lastSeen` would give 9.
+    const kitaab = unitState(loaded.value, unitKey('recognise', AR, 'كتاب'));
+    expect(kitaab.lastSeen).toBe(9);
+    expect(kitaab.lastAsked).toBe(0);
+
+    // And the non-zero path: proven on day 12, so asked on day 12.
+    const automne = unitState(loaded.value, unitKey('recognise', FR, 'automne'));
+    expect(automne.lastAsked).toBe(12);
+  });
+
+  it('carries a v1 blob through BOTH steps to a well-formed v3 profile', () => {
+    // The argument for migrating stepwise rather than writing one v1→v3 jump: two decisions taken
+    // independently compose into the right answer with no special case. `automne` has streak 1 and
+    // no `lastProven` in v1 — the v1 step sets `lastProven: 0`, and the v2 step then reads that as
+    // `lastAsked: 0` and `strength: min(1, 1)`. It arrives not known and maximally overdue.
+    const loaded = deserialize(FROZEN_V1);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+
+    const automne = unitState(loaded.value, unitKey('recognise', FR, 'automne'));
+    expect(automne.lastSeen).toBe(12);
+    expect(automne.lastAsked).toBe(0);
+    expect(automne.lastProven).toBe(0);
+    expect(automne.strength).toBe(1);
+    expect(isKnown(automne)).toBe(false);
+
+    // Nothing in v2 was ever a claim, so nothing may migrate into one — inventing claims here would
+    // fabricate exactly the thing `Prior` exists to keep honest.
+    for (const state of Object.values(loaded.value.units)) {
+      expect(state.prior).toEqual({ kind: 'none' });
+      expect(state.lapses).toBe(0);
+    }
+  });
+
+  it('passes an unrecognisable v2 unit through rather than throwing', () => {
+    const junk = '{"v":2,"language":"ar","day":1,"units":[["recognise:ar-msa:x",{"box":"???"}]]}';
+    const loaded = deserialize(junk);
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok) return;
+    expect(loaded.error.kind).toBe('malformed');
+    expect(loaded.error.message).toContain('recognise:ar-msa:x');
+  });
+
+  it('clamps a hand-edited v2 streak rather than minting a known unit from a learning one', () => {
+    // ⚠️ A DEFENCE THAT WAS DOCUMENTED AT LENGTH AND PINNED BY NOTHING. `MIGRATIONS[2]` maps
+    // `strength = min(streak, KNOWN_AT_STRENGTH - 1)`, and the comment explains the `min` is there
+    // so a hand-edited `streak: 9` cannot arrive as a verified-known word. A correct v2 could only
+    // ever write 0 or 1 — which is exactly why no golden reaches this branch, and why removing the
+    // `min` survived the whole suite.
+    const tampered =
+      '{"v":2,"language":"de","day":10,"units":[' +
+      '["recognise:de:haus",{"box":"learning","seen":1,"lastSeen":3,"streak":9,"lastProven":3}]' +
+      ']}';
+    const loaded = deserialize(tampered);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+
+    const haus = unitState(loaded.value, unitKey('recognise', variety('de')!, 'haus'));
+    expect(haus.strength).toBe(KNOWN_AT_STRENGTH - 1);
+    // The point of the clamp: a LEARNING unit must not become a KNOWN one by migrating.
+    expect(isKnown(haus)).toBe(false);
+  });
+
+  it('names an unreadable v2 unit rather than throwing at app launch', () => {
+    // The other documented defence: anything `MIGRATIONS[2]` cannot recognise is passed through
+    // untouched so `parseUnit` produces a `malformed` error CARRYING THE KEY — rather than this
+    // function throwing an unnamed exception on the app's launch path, where a learner cannot
+    // downgrade to escape it.
+    for (const broken of [
+      '{"v":2,"language":"de","day":1,"units":[["recognise:de:x",{"box":"learning","seen":1,"lastSeen":1}]]}',
+      '{"v":2,"language":"de","day":1,"units":[["recognise:de:x",{"box":"understood","seen":1,"lastSeen":1}]]}',
+      '{"v":2,"language":"de","day":1,"units":[["recognise:de:x",{"box":"sideways","seen":1,"lastSeen":1}]]}',
+    ]) {
+      const loaded = deserialize(broken);
+      expect(loaded.ok).toBe(false);
+      if (loaded.ok) continue;
+      expect(loaded.error.kind).toBe('malformed');
+      expect(loaded.error.message).toContain('recognise:de:x');
+    }
+  });
+
+  it('rejects a v3 blob whose rung is not a whole number, and clamps one that is too large', () => {
+    // The asymmetry `parseUnit` documents: corruption must be NAMED, but a profile written by a
+    // build whose ceiling was higher has to stay loadable — that is what lets `MAX_STRENGTH` be
+    // lowered after a sweep as a code change rather than a wire bump.
+    const withStrength = (v: string) =>
+      `{"v":3,"language":"de","day":1,"units":[["recognise:de:x",{"seen":1,"lastSeen":1,"lastAsked":1,"lastProven":1,"prior":null,"strength":${v},"lapses":0}]]}`;
+
+    expect(deserialize(withStrength('2.5')).ok).toBe(false);
+    expect(deserialize(withStrength('-1')).ok).toBe(false);
+
+    const tooHigh = deserialize(withStrength('99'));
+    expect(tooHigh.ok).toBe(true);
+    if (tooHigh.ok) {
+      expect(unitState(tooHigh.value, unitKey('recognise', variety('de')!, 'x')).strength).toBe(
+        MAX_STRENGTH,
+      );
+    }
+  });
+
+  it('refuses a v3 blob whose prior is neither null nor a day', () => {
+    // `undefined` is NOT accepted as "no claim": a missing field means the migration did not run,
+    // which is a different fact from "never claimed" and must not be rounded into it.
+    const withPrior = (v: string) =>
+      `{"v":3,"language":"de","day":1,"units":[["recognise:de:x",{"seen":1,"lastSeen":1,"lastAsked":1,"lastProven":1,${v}"strength":1,"lapses":0}]]}`;
+
+    expect(deserialize(withPrior('"prior":null,')).ok).toBe(true);
+    expect(deserialize(withPrior('"prior":7,')).ok).toBe(true);
+    expect(deserialize(withPrior('')).ok).toBe(false);
+    expect(deserialize(withPrior('"prior":"yes",')).ok).toBe(false);
+    expect(deserialize(withPrior('"prior":-1,')).ok).toBe(false);
   });
 });

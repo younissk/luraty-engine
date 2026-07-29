@@ -26,18 +26,25 @@ Every way of finding out what somebody knows ends in the same shape. The engine 
 which method produced it, and that is the point — you can change how you assess without touching
 the engine.
 
-| how you measure                              | what it becomes                          | `tested`    |
-| -------------------------------------------- | ---------------------------------------- | ----------- |
-| CEFR self-assessment ("I can order food")    | evidence on the words that skill implies | **`false`** |
-| Reading a text, tapping what they don't know | untapped words → known, tapped → unknown | `false`     |
-| Imitation / repeat-after-me                  | evidence on `produce` units              | `true`      |
-| Speaking a prompt, scored                    | evidence on `produce` units              | `true`      |
-| A vocabulary quiz                            | evidence on the asked units              | `true`      |
+| how you measure                                | what it becomes                                                      |
+| ---------------------------------------------- | -------------------------------------------------------------------- |
+| A placement — checklist, self-rating, anything | `{ kind: 'claim' }` on every word it names                           |
+| CEFR self-assessment ("I can order food")      | `{ kind: 'claim' }` on the words that skill implies                  |
+| Reading a text, tapping what they don't know   | untapped words → `{ kind: 'exposure' }`, tapped → `{ kind: 'help' }` |
+| Imitation / repeat-after-me                    | `{ kind: 'retrieval' }` on `produce` units                           |
+| Speaking a prompt, scored                      | `{ kind: 'retrieval' }` on `produce` units                           |
+| A vocabulary quiz                              | `{ kind: 'retrieval' }` on the asked units                           |
 
-⚠️ **`tested` is the only strength dial, and self-report must be `false`.** A word marked
-`tested: false` can never be promoted — it counts as exposure, not proof. That is not a limitation,
-it is the finding: learner self-ratings correlate only about **r ≈ .39** with tested proficiency.
-Letting a self-assessment promote a word would mean the engine believes a guess.
+⚠️ **Only a `retrieval` can raise a word's rung, and self-report must be a `claim`.** Learner
+self-ratings correlate only about **r ≈ .39** with tested proficiency, so letting one promote a word
+would mean the engine believes a guess. A claim is tracked, scheduled, and labelled `verify` — it is
+just never mistaken for proof.
+
+⚠️ **`exposure` and `help` are not the same thing, and the difference is worth getting right.**
+Reading past a word proves nothing and costs nothing. _Tapping the gloss_ is the learner telling you
+she does not have it, which is the single most informative thing that happens while reading. Send the
+tap as `help`. (An earlier version had no way to say this, and its nearest equivalent demoted a word
+she had proven four months earlier.)
 
 ### Learning → consumes plan and coverage
 
@@ -51,6 +58,21 @@ Letting a self-assessment promote a word would mean the engine believes a guess.
 
 The loop is: `plan()` says which words → you find or build the exercise → the learner does it →
 `record()` folds in what happened → `coverage()` sizes tomorrow's reading.
+
+⚠️ **Read `SessionItem.why` before you build the screen.** The same word means four different things
+to a learner, and showing them identically is how a fluent adult gets told she is a beginner:
+
+| `why`     | what it means                      | what the screen should say                |
+| --------- | ---------------------------------- | ----------------------------------------- |
+| `verify`  | she claimed it; nobody has checked | _"You said you know this — let's check."_ |
+| `new`     | never asked, never claimed         | teach it                                  |
+| `relearn` | asked before, never once right     | she is mid-acquisition; more support      |
+| `review`  | proven before                      | ordinary review                           |
+
+⚠️ **`plan()` cannot invent vocabulary.** It iterates the profile, so a brand-new profile yields an
+empty session no matter what. When that happens it sets `content.newUnitsWanted` — the number of new
+slots it was allowed to fill and could not. Take that many words off the frequency list you already
+loaded, show them, and record the evidence. The engine deliberately has no word list of its own.
 
 ⚠️ **The engine cannot tell listening from reading.** `Direction` is `recognise | produce` only.
 For the learner this product is built for that is a real gap — they typically understand _speech_
@@ -69,11 +91,46 @@ Two things worth knowing:
   identity-based — family, continuity, the rooted self — not streak-based. That is a product
   constraint recorded in the ADRs, not a technical one.
 - **The engine can feed ipsative feedback**, which is the kind the evidence supports: progress
-  against your own past, not against a level. A profile is a plain value, so keep last month's and
-  diff them — "you can read 400 more words than in March" is two `serialize()` calls apart. There
-  is no helper for this yet; there does not need to be.
+  against your own past, not against a level. `summarize(profile, scope)` gives a fixed-size,
+  integer-only snapshot — _"you can read 400 more words than in March"_ is a subtraction of two of
+  them. Store one whenever you take a measurement.
+- ⚠️ **Show `known` and `claimsStanding` differently.** `known` going down is bad news;
+  `claimsStanding` going down is progress — it is a shrinking to-do, not a shrinking score. A screen
+  that renders them the same way will tell her the opposite of the truth.
+
+### Reassessment → the engine says when, you say how
+
+`plan()` returns a `reassess` field with **three** arms:
+
+| kind             | meaning                                                    |
+| ---------------- | ---------------------------------------------------------- |
+| `not-due`        | something was proven recently; carries `daysUntil`         |
+| `due`            | 30 days without a proof; carries a real `daysSinceProven`  |
+| `never-measured` | nothing has EVER been proven — a placed learner on day one |
+
+⚠️ `never-measured` is a separate arm rather than `daysSinceProven: <big number>` because the engine
+stores no epoch. With nothing proven, `day − 0` is your raw day _number_: a host counting Unix days
+was told its brand-new learner had gone 20,661 days without proving anything. The type now makes that
+number unrepresentable.
+
+**That is a trigger, not an instrument.** It names no units and prescribes no method, because how to
+assess somebody is a genuine product decision. When it fires, run whatever placement you run and feed
+the result back as `claim` and `retrieval` evidence. A learner who drills daily and gets things right
+resets it constantly and is never nagged.
 
 ## Questions that come up first
+
+### ⚠️ Days start at 1. Zero is reserved.
+
+`day(0)` returns `undefined`. Zero is the "never" sentinel for every date the engine stores, because
+a max-fold needs an identity element — and that only works if no real day is also zero.
+
+It was measured not to be. A host whose epoch is "days since install" naturally starts at 0, and then
+a word asked on the install day read as **never asked**: `plan()` labelled it `'new'` instead of
+`'review'`, a claim disproved that day still counted as standing, and `summarize()` filed it under
+the wrong bucket. Six defects, one ambiguity, all invisible to a host that picked the obvious epoch.
+
+So count from 1. `Math.floor(Date.now() / 86_400_000)` is fine; `daysSinceInstall` needs a `+ 1`.
 
 ### What is a "variety"? Is it the dialect?
 
@@ -117,20 +174,27 @@ them. Whatever your test concludes, you express it as evidence and call `record(
 
 ```ts
 // However you decided she knows these 800 words, this is how it becomes a profile.
-const evidence = knownWords.flatMap((lemma) => [
-  { unit: unitKey('recognise', v, lemma), outcome: 'known', tested: true, day },
-  { unit: unitKey('recognise', v, lemma), outcome: 'known', tested: true, day },
-]);
-const placed = record(createProfile('de', day), evidence);
+const placed = record(
+  createProfile('de', day),
+  knownWords.map((lemma) => ({ kind: 'claim', unit: unitKey('recognise', v, lemma), day })),
+);
 ```
 
-Two rounds because `PROMOTE_AFTER_SUCCESSES` is 2. If your placement was a _self-report_ rather
-than a test, use `tested: false` — the words will be tracked and scheduled, but not treated as
-proven, which is the honest reading of a guess.
+That is the whole thing. A claim buys **no head start** — the first successful retrieval lands at
+rung 1, exactly like a word nobody ever claimed — so it cannot inflate her numbers. What it buys is
+that day one is not empty, that those words come back as `verify` rather than `new`, and that
+`coverage()` can say `'unverified'` instead of confidently reporting 0%.
 
-`engine/src/testing/learners.ts` does exactly this to fabricate simulated learners. Read it as a
-worked example, not as an API — it invents a history, which is right for a simulation and a lie in a
-product.
+⚠️ **Re-placing later is safe and needs no special handling.** A claim writes to a field no
+measurement writes, so it is structurally incapable of overwriting one.
+
+⚠️ **Do not fabricate retrievals to seed prior knowledge.** It is the obvious shortcut and it writes
+a lie into the profile: `strength` would then mean "we pretended she was tested twice". It also
+destroys the one number a heritage speaker actually wants, because a claim that survives being
+checked is what makes `claimsConfirmed` / `claimsRefuted` computable at all.
+
+`engine/src/testing/learners.ts` has both paths side by side — `claims` (honest, what a product does)
+and `recognises` (fabricated, for simulations only) — precisely so the difference stays visible.
 
 ### How do I save a learner?
 
@@ -141,6 +205,27 @@ and a crash there is a learner who cannot open your app.
 Where that string goes is yours: a file, AsyncStorage, a Supabase column. The engine has no
 filesystem on purpose. `scripts/learner.mjs` is a worked example that puts it in a file.
 
+### ⚠️ You must keep the evidence log. The engine does not.
+
+This was always the house rule — _the evidence log is the truth; a profile is a fold over it_ — and
+nothing said it out loud, so nobody was told they had to.
+
+Store every `Evidence` value you pass to `record()`, in your own database, forever. Three reasons,
+and the first is not optional:
+
+1. **It is the repair path.** A word's rung is order-dependent (a saturating ±n walk does not
+   commute), so a badly-ordered offline sync can leave a rung slightly wrong. The fix is a re-fold
+   from the log. Without a log there is no fix.
+2. **The stated strategy for a changed memory model is a re-fold.** The ladder will be revised. A
+   re-fold with no log is a rebuild from nothing.
+3. **The engine keeps no history at all.** A new measurement silently supersedes the old one, and
+   past attempts are stored nowhere. `summarize()` snapshots are how you answer "better than March?",
+   and you have to take them.
+
+Related: **sort an offline queue by day before folding it.** Every date field is a max-fold and
+converges regardless, but the rungs do not. Same-day ties stay genuinely ambiguous and are yours to
+break however you like.
+
 ## The shortest possible client
 
 ```ts
@@ -148,13 +233,17 @@ filesystem on purpose. `scripts/learner.mjs` is a worked example that puts it in
 const pack = createPack(config, { frequency, lemmas });
 const profile = deserialize(saved).value ?? createProfile('de', today);
 
-// 2. What should she do now?
-const session = plan(profile, { day: today, maxItems: 12, priority: byFrequency });
+// 2. What should she do now? `maxNew` is required — see below.
+const session = plan(profile, { day: today, maxItems: 12, maxNew: 4, priority: byFrequency });
 
-// 3. You fetch content for session.content.units, show it, collect answers.
+// 3. Fetch content for session.content.units, show it, collect answers.
+//    If session.content.newUnitsWanted > 0, also pull that many unmet words off your frequency
+//    list — the engine has none of its own.
+//    Show session.items[].why on screen: 'verify' is not 'new'.
 
-// 4. Fold in what happened.
+// 4. Fold in what happened — and store the same evidence in YOUR database. See the log obligation.
 const next = record(profile, answers);
+log.append(answers);
 
 // 5. Size tomorrow's reading.
 const hard = coverage(next, pack, {
@@ -164,10 +253,32 @@ const hard = coverage(next, pack, {
   ignore: names,
 });
 if (hard.kind === 'measured' && hard.band === 'in-band') use(candidate);
+// A claimed-but-unchecked passage comes back 'unverified' with BOTH readings. Its claimedLemmas
+// are the best possible `priority` list for tomorrow.
 
-// 6. Save.
+// 6. Is it time to re-measure? Three answers, not two.
+if (session.reassess.kind !== 'not-due') offerPlacement();
+
+// 7. Save, and snapshot if you just measured something.
 storage.set(serialize(next));
+if (justMeasured) history.append(summarize(next, { kind: 'all' }));
 ```
 
-Six calls. Everything else — screens, audio, streaks, accounts, payments — is yours, and the engine
-is designed so that none of it can leak in.
+⚠️ **`maxNew` has no default, deliberately.** Passing `maxItems` reproduces a measured bug: a host
+introducing 20 new words a day into a 20-item budget gave review **0% of slots, forever**, silently.
+The engine cannot pick the number for you — only you know how long your exercises take — so it made
+you type one.
+
+**Start at about half your session.** Swept over a simulated year at 20 drills a day
+(`src/core/budget.sweep.test.ts`), words known after 365 days:
+
+| `maxNew` (of 20) |   0 |   2 |    5 |       10 |   14 |  18 |    20 |
+| ---------------- | --: | --: | ---: | -------: | ---: | --: | ----: |
+| words known      |  59 | 637 | 1206 | **1508** | 1227 | 529 | **0** |
+
+Both ends are catastrophic and the middle is broad. `maxNew: maxItems` learns **nothing at all** —
+with new material taking every slot, no word is ever drilled twice, so nothing is ever consolidated.
+Anywhere between a quarter and three quarters of the session is within 25% of the peak.
+
+Everything else — screens, audio, streaks, accounts, payments — is yours, and the engine is designed
+so that none of it can leak in.

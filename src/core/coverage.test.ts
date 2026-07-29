@@ -9,7 +9,8 @@ import { arabicPack, frenchPack } from '../testing/packs.js';
 
 import { coverage } from './coverage.js';
 import { createProfile } from './profile.js';
-import { PROMOTE_AFTER_SUCCESSES, record } from './record.js';
+import { record } from './record.js';
+import { KNOWN_AT_STRENGTH } from '../model/unit.js';
 
 /**
  * Examples for {@link coverage}.
@@ -32,11 +33,11 @@ function knowing(
   const evidence: Evidence[] = [];
   for (const word of words) {
     const unit = unitKey(direction, v, pack.key(word));
-    for (let i = 0; i < PROMOTE_AFTER_SUCCESSES; i++) {
-      evidence.push({ unit, outcome: 'known', tested: true, day: D(0) });
+    for (let i = 0; i < KNOWN_AT_STRENGTH; i++) {
+      evidence.push({ kind: 'retrieval', unit, outcome: 'known', day: D(1) });
     }
   }
-  return record(createProfile(language, D(0)), evidence);
+  return record(createProfile(language, D(1)), evidence);
 }
 
 /**
@@ -100,7 +101,7 @@ describe('coverage', () => {
     const passage = 'سوق كتاب ـــ مدرسة';
     expect(arabicPack.key('ـــ')).toBe('');
 
-    const result = coverage(createProfile('ar', D(0)), arabicPack, {
+    const result = coverage(createProfile('ar', D(1)), arabicPack, {
       text: passage,
       variety: AR,
       direction: 'recognise',
@@ -121,7 +122,7 @@ describe('coverage', () => {
     // `0` means the tokenizer matched nothing; `> 0` means it matched and nothing survived keying.
     // One field, two distinguishable diagnoses.
     expect(
-      coverage(createProfile('ar', D(0)), arabicPack, {
+      coverage(createProfile('ar', D(1)), arabicPack, {
         text: 'ـــ',
         variety: AR,
         direction: 'recognise',
@@ -218,7 +219,7 @@ describe('coverage', () => {
   it('does not count exposure as knowledge', () => {
     const passage = text(0, 25); // 25 tokens of `zzz`, never met
     const query = { text: passage, variety: FR, direction: 'recognise' } as const;
-    const fresh = createProfile('fr', D(0));
+    const fresh = createProfile('fr', D(1));
 
     const before = coverage(fresh, frenchPack, query);
 
@@ -228,9 +229,8 @@ describe('coverage', () => {
     // selection is steered by.
     const unit = unitKey('recognise', FR, frenchPack.key('zzz'));
     const passive: Evidence[] = Array.from({ length: 40 }, () => ({
+      kind: 'exposure' as const,
       unit,
-      outcome: 'known' as const,
-      tested: false,
       day: D(1),
     }));
     const exposed = record(fresh, passive);
@@ -241,10 +241,10 @@ describe('coverage', () => {
     // it.
     const tested = record(
       exposed,
-      Array.from({ length: PROMOTE_AFTER_SUCCESSES }, () => ({
+      Array.from({ length: KNOWN_AT_STRENGTH }, () => ({
+        kind: 'retrieval' as const,
         unit,
         outcome: 'known' as const,
-        tested: true,
         day: D(2),
       })),
     );
@@ -306,7 +306,7 @@ describe('coverage', () => {
   it('reports a beginner as 0% known rather than raising an alarm', () => {
     // 0% is the correct answer for someone who has met nothing, and it is indistinguishable from a
     // variety that is absent from the profile. Asserted so nobody "fixes" it into a throw.
-    const beginner = createProfile('fr', D(0));
+    const beginner = createProfile('fr', D(1));
     const result = coverage(beginner, frenchPack, {
       text: text(0, 30),
       variety: FR,
