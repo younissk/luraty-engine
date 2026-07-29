@@ -2,7 +2,8 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import type { Evidence } from '../model/evidence.js';
-import { unitKey, variety, type Day, type UnitKey } from '../model/ids.js';
+import { variety, type Day } from '../model/ids.js';
+import { arbEvidence as anyEvidence } from '../testing/evidence.js';
 
 import { deserialize, serialize } from './persist.js';
 import { createProfile } from './profile.js';
@@ -23,18 +24,14 @@ const LEV = variety('ar-levantine')!;
 // and non-Latin scripts are where canonical ordering usually goes wrong.
 const WORDS = ['سوق', 'كتاب', 'a', 'Z', 'é', '0', '99', 'a:b', 'ñ', ' ', 'ZZZ'];
 
-const arbEvidence: fc.Arbitrary<Evidence> = fc.record({
-  unit: fc
-    .tuple(
-      fc.constantFrom('recognise' as const, 'produce' as const),
-      fc.constantFrom(AR, LEV),
-      fc.constantFrom(...WORDS),
-    )
-    .map(([dir, v, word]): UnitKey => unitKey(dir, v, word)),
-  outcome: fc.constantFrom('known' as const, 'unknown' as const),
-  tested: fc.boolean(),
-  day: fc.integer({ min: 0, max: 500 }).map((n) => n as Day),
-});
+// ⚠️ BOTH varieties, and all four evidence kinds. `arbProfile` builds profiles ONLY through
+// `record()`, so any state the generator cannot produce is state these six laws do not cover — and
+// the round-trip and canonical-ordering laws would stay green while never once serializing a claim.
+// See `testing/evidence.ts` for the near-miss this guards against.
+const arbEvidence: fc.Arbitrary<Evidence> = fc.oneof(
+  anyEvidence({ variety: AR, words: WORDS, maxDay: 500 }),
+  anyEvidence({ variety: LEV, words: WORDS, maxDay: 500 }),
+);
 
 const arbProfile = fc
   .array(arbEvidence, { maxLength: 60 })

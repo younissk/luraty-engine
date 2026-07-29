@@ -5,8 +5,15 @@ frontend.** It holds the decisions — what to teach, when, how an answer is jud
 next. It must run unchanged under Hermes (React Native), Node, and a browser.
 
 **Built so far:** the learner state and the evidence fold (`record`), persistence
-(`serialize`/`deserialize`), language packs (`createPack`/`checkPack`), coverage, and the scheduler
-(`plan`). Read this file before adding the next piece.
+(`serialize`/`deserialize`), language packs (`createPack`/`checkPack`), coverage, the scheduler
+(`plan`), and reporting (`summarize`). Read this file before adding the next piece.
+
+⚠️ **Wire v3 landed 2026-07-29 (ADR-0006) and it changed the shape of a unit.** A unit is a rung
+ladder (`strength: 0..6`, known at 2) with three anchors — `lastSeen ⊇ lastAsked ⊇ lastProven` —
+plus a `prior`. `Learning | Understood | Box | PROMOTE_AFTER_SUCCESSES` are **gone**; `Evidence` is a
+four-member union (`retrieval` / `exposure` / `help` / `claim`) instead of a record with
+`tested: boolean`; `PlanOptions.maxNew` is **required**. Anything you find that still talks about
+boxes or `tested` is archaeology.
 
 ## The one rule
 
@@ -107,13 +114,24 @@ partly for this reason.
 src/
   index.ts          the public barrel — a hand-written allowlist, never `export *`
   model/            types only, no behaviour. core/ → model/, never back
-  core/             the pure functions: plan, record, coverage, serialize/deserialize
+  core/             the pure functions: plan, record, coverage, summarize, serialize/deserialize
   internal/         mechanisms. NEVER exported from the barrel
+  testing/          generators and fixtures. NEVER exported from the barrel either
   boundary.test.ts
 docs/
   concepts/         why the engine is shaped this way — the invariants a newcomer will break
   guides/           how to do one thing, start to finish
 ```
+
+Three test files carry more weight than their names suggest:
+
+- **`core/gaps.test.ts`** — the five measured failures ADR-0006 fixed, each with the OLD reading in a
+  comment. Four of the five were silent, so a regression would be silent too.
+- **`core/*.sweep.test.ts`** — audits of a CONSTANT, not specs of a behaviour. They simulate whole
+  years, carry a 60s timeout, and are excluded from the mutation lane via `vitest.mutate.config.ts`.
+- **`testing/evidence.ts`** — one generator, all four evidence kinds, plus `kindsIn` so a suite can
+  assert it saw them. It exists because the mechanical fix when `Evidence` became a union (pin
+  `kind: 'retrieval'`) would have left every property law green and covering one variant in four.
 
 Each folder has a README stating what belongs in it and what does not. Read the one for the folder
 you are about to edit — they carry the rules that the types cannot.
@@ -168,6 +186,14 @@ a branch a generator might never reach.
 Two laws are worth writing _before_ the functions they describe: `record` is a fold, and
 `serialize` → `deserialize` round-trips with canonical ordering.
 
+⚠️ **A law that reads true is not a law that is true.** Three statements of the new-material budget
+were written and refuted by fast-check before one survived: `introduced <= maxNew` (false — the cap
+yields rather than shorten a session), `maintenance === min(maxItems, due)` (false — new material
+legitimately outranks review), and finally the one that holds, that `maxItems - maxNew` slots are
+reserved for maintenance. The third counter-example found a real defect rather than a bad law: the
+deferred pass was appending items out of comparator order. **Write the law, let it fail, and read
+what it says** — twice here it was the law that was wrong, and once it was the code.
+
 ### Mutation testing
 
 ```bash
@@ -182,6 +208,9 @@ Score today **84.96%** (757 of 891) — `coverage.ts` 97, `record.ts` 96, `ids.t
 
 `assert.ts` at zero is honest: `assertNever`'s body is unreachable while the types are truthful, so
 nothing can pin its message. Do not "fix" it by asserting on an exception no correct program throws.
+
+⚠️ **THE SCORE ABOVE IS FROM BEFORE WIRE v3 and has not been re-measured on the new shape.** Treat
+it as the last known reading, not as today's.
 
 ⚠️ **THE NUMBER WAS OVERSTATED BEFORE, AND UNDERSTATED FOR TWO FILES — read this before trusting a
 future one.** `src/testing/packs.ts` used to `throw` when a fixture pack failed to build, at MODULE

@@ -6,6 +6,7 @@ import type { Evidence } from '../model/evidence.js';
 import { unitKey, variety, type Day, type UnitKey } from '../model/ids.js';
 import type { LanguagePack, Lemma } from '../model/pack.js';
 import type { Profile } from '../model/profile.js';
+import { isKnown } from '../model/unit.js';
 
 import {
   beginner,
@@ -202,7 +203,7 @@ export function runDemo(
     // 12 items is a plausible 15-20 minute session — the length the evidence supports. With 5
     // the 67-word pool takes 14 days to come round once, so nothing promotes for nearly three
     // weeks and the run shows only its own cold start.
-    const session = plan(profile, { day: D(d), maxItems: 12 });
+    const session = plan(profile, { day: D(d), maxItems: 12, maxNew: 4 });
 
     // 2. A real host would now fetch exercises for `session.content.units` and a passage of at
     //    least `session.content.minPassageTokens` tokens. Here the learner just answers.
@@ -211,19 +212,18 @@ export function runDemo(
       const practice = profile.units[item.unit]?.seen ?? 0;
       const base = course.familiar.some((f) => pack.key(f) === w) ? 0.75 : 0.3;
       return {
+        kind: 'retrieval',
         unit: item.unit,
         outcome: next() < Math.min(0.95, base + 0.07 * practice) ? 'known' : 'unknown',
-        tested: true,
         day: D(d),
       };
     });
 
     // 3. Reading mints a unit for anything not met yet. This is the intake path — and it never
-    //    promotes anything, because `tested: false`.
+    //    promotes anything, because an `exposure` cannot.
     const read: Evidence[] = lemmas.map((lemma) => ({
+      kind: 'exposure' as const,
       unit: unitKey('recognise', v, lemma),
-      outcome: 'known' as const,
-      tested: false,
       day: D(d),
     }));
 
@@ -278,7 +278,7 @@ export function runDemo(
   say('     proves them all. If you see two entries that are obviously the same word, that is a');
   say('     pack bug — the lemma table is incomplete, not the engine.');
   say(
-    '   · Nothing is known for the first days. Promotion needs two tested successes, and reading',
+    '   · Nothing is known for the first days. Reaching the known rung needs two real retrievals, and reading',
   );
   say('     the passage every single day never promotes anything. Only drills do.');
   say('   · Nothing graduates. Proven words keep coming back — that is where retention lives.');
@@ -326,7 +326,7 @@ export function runCompare(language = 'de', override?: PackOverride): void {
     let recognises = 0;
     let produces = 0;
     for (const [key, state] of Object.entries(profile.units)) {
-      if (state.box !== 'understood') continue;
+      if (!isKnown(state)) continue;
       if (key.startsWith('produce:')) produces++;
       else recognises++;
     }

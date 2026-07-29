@@ -9,7 +9,8 @@ import { arabicPack, frenchPack } from '../testing/packs.js';
 
 import { coverage } from './coverage.js';
 import { createProfile } from './profile.js';
-import { PROMOTE_AFTER_SUCCESSES, record } from './record.js';
+import { record } from './record.js';
+import { KNOWN_AT_STRENGTH } from '../model/unit.js';
 
 /**
  * Examples for {@link coverage}.
@@ -32,8 +33,8 @@ function knowing(
   const evidence: Evidence[] = [];
   for (const word of words) {
     const unit = unitKey(direction, v, pack.key(word));
-    for (let i = 0; i < PROMOTE_AFTER_SUCCESSES; i++) {
-      evidence.push({ unit, outcome: 'known', tested: true, day: D(0) });
+    for (let i = 0; i < KNOWN_AT_STRENGTH; i++) {
+      evidence.push({ kind: 'retrieval', unit, outcome: 'known', day: D(0) });
     }
   }
   return record(createProfile(language, D(0)), evidence);
@@ -228,9 +229,8 @@ describe('coverage', () => {
     // selection is steered by.
     const unit = unitKey('recognise', FR, frenchPack.key('zzz'));
     const passive: Evidence[] = Array.from({ length: 40 }, () => ({
+      kind: 'exposure' as const,
       unit,
-      outcome: 'known' as const,
-      tested: false,
       day: D(1),
     }));
     const exposed = record(fresh, passive);
@@ -241,10 +241,10 @@ describe('coverage', () => {
     // it.
     const tested = record(
       exposed,
-      Array.from({ length: PROMOTE_AFTER_SUCCESSES }, () => ({
+      Array.from({ length: KNOWN_AT_STRENGTH }, () => ({
+        kind: 'retrieval' as const,
         unit,
         outcome: 'known' as const,
-        tested: true,
         day: D(2),
       })),
     );

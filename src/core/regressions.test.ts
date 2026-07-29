@@ -6,6 +6,7 @@ import { arabicPack, fixtures, frenchPack, germanPack } from '../testing/packs.j
 import { createPack } from './pack.js';
 import { createProfile, unitState } from './profile.js';
 import { record } from './record.js';
+import { isKnown } from '../model/unit.js';
 
 /**
  * One named test per bug that actually shipped, so none of them can come back quietly.
@@ -91,7 +92,7 @@ describe('regressions', () => {
     }
   });
 
-  it('never rewinds lastSeen or confirmedOn when evidence arrives out of order', () => {
+  it('never rewinds any anchor when evidence arrives out of order', () => {
     // Was: `lastSeen = evidence.day` unconditionally, so a host syncing an offline queue could
     // replay a day-3 item after day 40 and a unit proven yesterday would report itself last proven
     // 37 days ago. Invisible until something does interval arithmetic on these fields, at which
@@ -99,17 +100,18 @@ describe('regressions', () => {
     const k: UnitKey = unitKey('recognise', AR, 'سوق');
     let p = createProfile('ar', D(0));
     p = record(p, [
-      { unit: k, outcome: 'known', tested: true, day: D(39) },
-      { unit: k, outcome: 'known', tested: true, day: D(40) },
+      { kind: 'retrieval', unit: k, outcome: 'known', day: D(39) },
+      { kind: 'retrieval', unit: k, outcome: 'known', day: D(40) },
     ]);
     const before = unitState(p, k);
-    expect(before).toMatchObject({ box: 'understood', lastSeen: 40, confirmedOn: 40 });
+    expect(before).toMatchObject({ lastSeen: 40, lastAsked: 40, lastProven: 40 });
+    expect(isKnown(before)).toBe(true);
 
-    p = record(p, [{ unit: k, outcome: 'known', tested: true, day: D(3) }]);
+    p = record(p, [{ kind: 'retrieval', unit: k, outcome: 'known', day: D(3) }]);
     const after = unitState(p, k);
     expect(after.lastSeen).toBe(40);
     expect(after.seen).toBe(3); // the encounter still counts
-    if (after.box === 'understood') expect(after.confirmedOn).toBe(40);
+    if (isKnown(after)) expect(after.lastProven).toBe(40);
   });
 
   it('keys words that collide with Object.prototype', () => {

@@ -163,12 +163,19 @@ export function fingerprint(): string {
     for (let day = 1; day <= 20; day++) {
       const word = CORPUS[day % CORPUS.length] ?? 'سوق';
       profile = record(profile, [
-        {
-          unit: unitKey(day % 2 === 0 ? 'recognise' : 'produce', AR, word),
-          outcome: day % 3 === 0 ? 'unknown' : 'known',
-          tested: day % 2 === 0,
-          day: day as Day,
-        },
+        // Every evidence kind is exercised across the 20 days, so the fingerprint covers the whole
+        // fold rather than only its retrieval arm — including the saturating rung arithmetic, which
+        // is the one new integer computation v3 added.
+        day % 5 === 0
+          ? { kind: 'exposure' as const, unit: unitKey('recognise', AR, word), day: day as Day }
+          : day % 7 === 0
+            ? { kind: 'help' as const, unit: unitKey('recognise', AR, word), day: day as Day }
+            : {
+                kind: 'retrieval' as const,
+                unit: unitKey(day % 2 === 0 ? 'recognise' : 'produce', AR, word),
+                outcome: day % 3 === 0 ? ('unknown' as const) : ('known' as const),
+                day: day as Day,
+              },
       ]);
     }
     const blob = serialize(profile);
@@ -207,15 +214,15 @@ export function fingerprint(): string {
       known,
       words.slice(0, 2).flatMap((w) => [
         {
+          kind: 'retrieval' as const,
           unit: unitKey('recognise', v, pack.key(w)),
           outcome: 'known' as const,
-          tested: true,
           day: 0 as Day,
         },
         {
+          kind: 'retrieval' as const,
           unit: unitKey('recognise', v, pack.key(w)),
           outcome: 'known' as const,
-          tested: true,
           day: 1 as Day,
         },
       ]),
@@ -246,16 +253,26 @@ export function fingerprint(): string {
     for (let i = 0; i < 12; i++) {
       const unit = unitKey(i % 3 === 0 ? 'produce' : 'recognise', AR, CORPUS[i] ?? 'سوق');
       scheduled = record(scheduled, [
-        { unit, outcome: 'known', tested: true, day: (i + 1) as Day },
-        { unit, outcome: i % 4 === 0 ? 'unknown' : 'known', tested: true, day: (i + 2) as Day },
+        { kind: 'retrieval', unit, outcome: 'known', day: (i + 1) as Day },
+        {
+          kind: 'retrieval',
+          unit,
+          outcome: i % 4 === 0 ? ('unknown' as const) : ('known' as const),
+          day: (i + 2) as Day,
+        },
       ]);
     }
-    const session = plan(scheduled, { day: 40 as Day, maxItems: 5 });
+    const session = plan(scheduled, { day: 40 as Day, maxItems: 5, maxNew: 2 });
     lines.push(
       `plan | day 40 | ${session.items.map((i) => `${show(i.unit)}@${String(i.daysWaiting)}`).join('~')}`,
     );
     lines.push(
-      `plan-request | day 40 | ${String(session.content.units.length)}/${String(session.content.minPassageTokens)}`,
+      `plan-request | day 40 | ${String(session.content.units.length)}/${String(session.content.minPassageTokens)}/${String(session.content.newUnitsWanted)}`,
+    );
+    // The rung ladder and the three anchors, straight from the fold — so the cross-runtime lane
+    // covers the arithmetic that now decides what "known" means, not just the dates.
+    lines.push(
+      `plan-why | day 40 | ${session.items.map((i) => i.why).join('~')} | reassess=${session.reassess.kind}`,
     );
   }
 

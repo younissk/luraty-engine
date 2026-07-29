@@ -1,13 +1,13 @@
 import { isUnitKey, type Day, type UnitKey } from '../model/ids.js';
 import type { Profile } from '../model/profile.js';
-import type { UnitState } from '../model/unit.js';
+import { clampStrength, KNOWN_AT_STRENGTH, type Prior, type UnitState } from '../model/unit.js';
 import {
   PROFILE_SCHEMA_VERSION,
   type Decoded,
   type DecodeError,
-  type WireEntryV2,
+  type WireEntryV3,
   type WireProfile,
-  type WireUnitV2,
+  type WireUnitV3,
 } from '../model/wire.js';
 import { assertNever } from '../internal/assert.js';
 
@@ -24,26 +24,28 @@ import { assertNever } from '../internal/assert.js';
 
 // ── Encoding ────────────────────────────────────────────────────────────────────────────────────
 
-function toWire(state: UnitState): WireUnitV2 {
-  switch (state.box) {
-    case 'learning':
-      return {
-        box: 'learning',
-        seen: state.seen,
-        lastSeen: state.lastSeen,
-        streak: state.streak,
-        lastProven: state.lastProven,
-      };
-    case 'understood':
-      return {
-        box: 'understood',
-        seen: state.seen,
-        lastSeen: state.lastSeen,
-        confirmedOn: state.confirmedOn,
-      };
+/** A prior, flattened for storage. See {@link WireUnitV3.prior}. */
+function priorToWire(prior: Prior): number | null {
+  switch (prior.kind) {
+    case 'none':
+      return null;
+    case 'claimed':
+      return prior.on;
     default:
-      return assertNever(state, 'UnitState');
+      return assertNever(prior, 'Prior');
   }
+}
+
+function toWire(state: UnitState): WireUnitV3 {
+  return {
+    seen: state.seen,
+    lastSeen: state.lastSeen,
+    lastAsked: state.lastAsked,
+    lastProven: state.lastProven,
+    prior: priorToWire(state.prior),
+    strength: state.strength,
+    lapses: state.lapses,
+  };
 }
 
 /**
@@ -61,8 +63,8 @@ function toWire(state: UnitState): WireUnitV2 {
  * bug this is meant to prevent.
  */
 export function serialize(profile: Profile): string {
-  const units: WireEntryV2[] = Object.entries(profile.units)
-    .map(([key, state]): WireEntryV2 => [key, toWire(state)])
+  const units: WireEntryV3[] = Object.entries(profile.units)
+    .map(([key, state]): WireEntryV3 => [key, toWire(state)])
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 
   const wire: WireProfile = {
@@ -98,24 +100,41 @@ function isWholeNumber(v: unknown): v is number {
  */
 function parseUnit(v: unknown): UnitState | undefined {
   if (!isRecord(v)) return undefined;
-  if (!isWholeNumber(v.seen) || !isWholeNumber(v.lastSeen)) return undefined;
 
-  const seen = v.seen;
-  const lastSeen = v.lastSeen as Day;
+  // Every counter and every anchor. These arrive from the v2 migration when they were not in the
+  // stored bytes, so by the time this runs they are always present — checked anyway, because this is
+  // a trust boundary and "the migration must have run" is exactly the assumption that is false the
+  // day one does not.
+  if (!isWholeNumber(v.seen)) return undefined;
+  if (!isWholeNumber(v.lastSeen)) return undefined;
+  if (!isWholeNumber(v.lastAsked)) return undefined;
+  if (!isWholeNumber(v.lastProven)) return undefined;
+  if (!isWholeNumber(v.lapses)) return undefined;
 
-  if (v.box === 'learning') {
-    if (!isWholeNumber(v.streak)) return undefined;
-    // `lastProven` arrives from the v1 migration when it was not in the stored bytes, so by the
-    // time this runs it is always present. Checked anyway: this is a trust boundary, and "the
-    // migration must have run" is exactly the assumption that is false the day one does not.
-    if (!isWholeNumber(v.lastProven)) return undefined;
-    return { box: 'learning', seen, lastSeen, streak: v.streak, lastProven: v.lastProven as Day };
-  }
-  if (v.box === 'understood') {
-    if (!isWholeNumber(v.confirmedOn)) return undefined;
-    return { box: 'understood', seen, lastSeen, confirmedOn: v.confirmedOn as Day };
-  }
-  return undefined;
+  // ⚠️ REJECT a non-whole rung, CLAMP an over-large one, and the asymmetry is deliberate. Corruption
+  // must be named; but a blob written by a build whose `MAX_STRENGTH` was higher has to stay
+  // readable, so that lowering the ceiling after a simulation sweep is a code change rather than a
+  // wire bump. `clampStrength` is total, and its `Math.trunc` is unreachable here because the
+  // whole-number check has already run.
+  if (!isWholeNumber(v.strength)) return undefined;
+  const strength = clampStrength(v.strength);
+
+  // `null` for no claim, a whole day number otherwise. `undefined` is NOT accepted as "no claim":
+  // a missing field means the migration did not run, which is a different fact from "never claimed"
+  // and must not be silently rounded into it.
+  if (v.prior !== null && !isWholeNumber(v.prior)) return undefined;
+  const prior: Prior =
+    v.prior === null ? { kind: 'none' } : { kind: 'claimed', on: v.prior as Day };
+
+  return {
+    seen: v.seen,
+    lastSeen: v.lastSeen as Day,
+    lastAsked: v.lastAsked as Day,
+    lastProven: v.lastProven as Day,
+    prior,
+    strength,
+    lapses: v.lapses,
+  };
 }
 
 /**
@@ -161,6 +180,101 @@ const MIGRATIONS: Readonly<Record<number, (input: unknown) => unknown>> = {
         const [key, state] = entry as [unknown, unknown];
         if (!isRecord(state) || state.box !== 'learning') return entry;
         return [key, { ...state, lastProven: 0 }];
+      }),
+    };
+  },
+
+  /**
+   * v2 → v3: drop the box, flatten to a rung ladder, and split one anchor into three.
+   *
+   * ⚠️ **THE KEYS ARE NOT TOUCHED.** Every stored `recognise:…` / `produce:…` key decodes unchanged,
+   * which is why a v1 blob can still run this step after `MIGRATIONS[1]` and why neither golden
+   * needed rekeying. That is the direct dividend of declining to move modality into the unit key.
+   *
+   * Every invented value below is chosen by ONE test, applied three times: **which direction of
+   * error is recoverable?** It is the same test the v1→v2 step used to reject `lastProven = lastSeen`
+   * — over-drilling once is recoverable, under-drilling forever is not — and all three answers point
+   * the same way.
+   *
+   * **learning → flat**
+   *
+   * - `streak` → `strength: min(streak, KNOWN_AT_STRENGTH - 1)`. Information-preserving rather than a
+   *   guess: v2's `streak` is only ever 0 or 1, because 2 promoted. The `min` is defensive — a
+   *   hand-edited `streak: 9` must not mint a verified-known unit out of a learning one.
+   * - `lastProven` verbatim. It is the one uncontaminated day field v2 has.
+   * - **`lastAsked = lastProven`**, and this is the one real decision. `lastAsked` is a monotone
+   *   max-fold, so the v1→v2 contamination test applies unchanged. `lastSeen` FAILS it exactly as it
+   *   did before: passive exposure moves it, so a learner who had been reading daily would migrate
+   *   with every weak word stamped as recently *asked*, gated behind the review gap, and under-
+   *   drilled forever with no way to correct it downward. `0` passes but is merely wasteful.
+   *   `lastProven` passes and strictly dominates `0`: it is uncontaminated by construction, and
+   *   because every proof was also an ask it is always `<=` the true `lastAsked` — so importing it
+   *   can only make a unit look staler than it is, never fresher.
+   *
+   * **understood → flat**
+   *
+   * - `confirmedOn` → BOTH `lastProven` and `lastAsked`, with no guessing. The v2 `understood`
+   *   variant could only be entered or refreshed by a real retrieval, so `confirmedOn` is
+   *   uncontaminated in both senses at once. This is the single place the two anchors provably
+   *   coincide, and merging v2's two names for one fact is the point of the change.
+   * - `strength: KNOWN_AT_STRENGTH` and **not** `MAX_STRENGTH`. v2 stored no repetition count, so
+   *   the value must be invented and the two candidates fail differently. The ceiling would claim
+   *   maximal robustness for a word proven exactly twice — it would then survive three consecutive
+   *   failures before stopping counting as known, inflating coverage on a fabricated basis, which is
+   *   under-drilling on invented evidence and the worst combination available. The known rung is the
+   *   MINIMUM value preserving v2's own verdict, so **no learner's coverage number moves on
+   *   migration**, while leaving the unit maximally fragile: one failed drill takes it to zero.
+   *
+   * **Both**
+   *
+   * - `prior: null`. Nothing in v2 is a claim — every unit in it was minted by real evidence — so
+   *   inventing claims here would fabricate exactly the thing {@link Prior} exists to keep honest.
+   * - `lapses: 0`. Not derivable: v2's `streak: 0` covers "failed five times running" and "never
+   *   asked" alike. `lapses` is report-only, so a wrong value can mislabel but never misschedule,
+   *   and zero errs toward not flagging a stuck word that never was.
+   *
+   * Defensive throughout, like `MIGRATIONS[1]`: anything unrecognisable is passed through untouched
+   * so `parseUnit` produces a `malformed` error naming the offending key, rather than this function
+   * throwing an unnamed exception at app launch.
+   */
+  2: (input: unknown): unknown => {
+    if (!isRecord(input) || !Array.isArray(input.units)) return input;
+    const entries: unknown[] = input.units;
+    return {
+      ...input,
+      v: 3,
+      units: entries.map((entry: unknown): unknown => {
+        if (!Array.isArray(entry) || entry.length !== 2) return entry;
+        const [key, state] = entry as [unknown, unknown];
+        if (!isRecord(state)) return entry;
+
+        const common = { prior: null, lapses: 0, seen: state.seen, lastSeen: state.lastSeen };
+
+        if (state.box === 'learning') {
+          if (!isWholeNumber(state.streak) || !isWholeNumber(state.lastProven)) return entry;
+          return [
+            key,
+            {
+              ...common,
+              lastAsked: state.lastProven,
+              lastProven: state.lastProven,
+              strength: Math.min(state.streak, KNOWN_AT_STRENGTH - 1),
+            },
+          ];
+        }
+        if (state.box === 'understood') {
+          if (!isWholeNumber(state.confirmedOn)) return entry;
+          return [
+            key,
+            {
+              ...common,
+              lastAsked: state.confirmedOn,
+              lastProven: state.confirmedOn,
+              strength: KNOWN_AT_STRENGTH,
+            },
+          ];
+        }
+        return entry;
       }),
     };
   },

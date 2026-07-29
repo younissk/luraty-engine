@@ -4,19 +4,23 @@ import type { Evidence } from '../model/evidence.js';
 import { unitKey, type Day, type Variety } from '../model/ids.js';
 import type { LanguagePack, Lemma } from '../model/pack.js';
 import type { Profile } from '../model/profile.js';
-import { PROMOTE_AFTER_SUCCESSES } from '../core/record.js';
+import { KNOWN_AT_STRENGTH } from '../model/unit.js';
 
 /**
  * Building learners to simulate against.
  *
- * ⚠️ A TESTING UTILITY, not part of the public API, and the distinction is load-bearing. These
- * functions FABRICATE a history — they invent evidence that never happened so that a profile comes
- * out the far end looking like a particular person. That is exactly right for a simulation and
- * exactly wrong for a product: a real learner's profile is a fold over evidence they actually
- * generated, and anything that seeds knowledge without evidence is the engine lying to itself.
+ * ⚠️ A TESTING UTILITY, not part of the public API, and the distinction is load-bearing. The
+ * `recognises` / `produces` / `met` fields FABRICATE a history — they invent retrievals that never
+ * happened so a profile comes out the far end looking like a particular person. That is exactly
+ * right for a simulation and exactly wrong for a product.
  *
- * The real version of this is PLACEMENT — asking a learner enough questions to earn a prior — and
- * it is not built. This file is what makes its absence measurable in the meantime.
+ * ⚠️ **`claims` is the exception, and it is no longer a fabrication.** A `{kind: 'claim'}` is the
+ * real shape of the fact a placement hands over, so a profile built from claims alone is one a
+ * product can honestly produce. Until v3 there was no such path — the only way prior knowledge could
+ * enter was by inventing retrievals, and this module's docstring said so and called the gap
+ * measurable. It is now closed, and the two kinds of seeding sit side by side here precisely so the
+ * difference stays visible: `recognises` says "pretend she proved this", `claims` says "she says she
+ * knows this and nobody has checked".
  *
  * Everything here is deterministic: same spec, same profile, every time. A simulation you cannot
  * reproduce is an anecdote.
@@ -44,8 +48,16 @@ export type LearnerSpec = {
   readonly recognises?: readonly Lemma[];
   /** Lemmas the learner can also produce. Normally a subset of `recognises`, never enforced. */
   readonly produces?: readonly Lemma[];
-  /** Lemmas met but never proven — the learning frontier, `learning` with a real `seen` count. */
+  /** Lemmas met but never proven — the learning frontier, with a real `seen` count and rung 0. */
   readonly met?: readonly Lemma[];
+  /**
+   * Lemmas the host CLAIMS she knows, with nobody having checked — the output of a placement.
+   *
+   * Unlike the fields above this fabricates nothing: it records exactly the evidence a real
+   * placement produces. A claimed unit is not known, is worth `'verify'` rather than `'new'` in a
+   * session, and turns `coverage()` on a text full of them into `'unverified'`.
+   */
+  readonly claims?: readonly Lemma[];
   /**
    * Spread the last-proven days over this many days back, so the profile is not uniformly fresh.
    *
@@ -72,25 +84,33 @@ export function learner(spec: LearnerSpec): Profile {
   for (const lemma of spec.recognises ?? []) {
     const unit = unitKey('recognise', spec.variety, lemma);
     const day = backdate();
-    for (let i = 0; i < PROMOTE_AFTER_SUCCESSES; i++) {
-      evidence.push({ unit, outcome: 'known', tested: true, day });
+    // Exactly enough proofs to reach the known rung, and no more. Driving these to the ceiling would
+    // manufacture a robustness no real learner has earned and would make every simulation of
+    // forgetting start from the wrong place.
+    for (let i = 0; i < KNOWN_AT_STRENGTH; i++) {
+      evidence.push({ kind: 'retrieval', unit, outcome: 'known', day });
     }
   }
 
   for (const lemma of spec.produces ?? []) {
     const unit = unitKey('produce', spec.variety, lemma);
     const day = backdate();
-    for (let i = 0; i < PROMOTE_AFTER_SUCCESSES; i++) {
-      evidence.push({ unit, outcome: 'known', tested: true, day });
+    for (let i = 0; i < KNOWN_AT_STRENGTH; i++) {
+      evidence.push({ kind: 'retrieval', unit, outcome: 'known', day });
     }
   }
 
   for (const lemma of spec.met ?? []) {
-    // Met while reading and never retrieved: `seen` climbs, nothing is proven. This is the state
-    // the engine's `tested` flag exists to keep distinct, so a simulated learner must be able to
-    // be in it.
+    // Met while reading and never retrieved: `seen` climbs, nothing is proven. This is the state the
+    // `exposure` variant exists to keep distinct, so a simulated learner must be able to be in it.
     const unit = unitKey('recognise', spec.variety, lemma);
-    evidence.push({ unit, outcome: 'known', tested: false, day: backdate() });
+    evidence.push({ kind: 'exposure', unit, day: backdate() });
+  }
+
+  for (const lemma of spec.claims ?? []) {
+    // The one seeding path here that is not a fabrication — this is what a placement emits.
+    const unit = unitKey('recognise', spec.variety, lemma);
+    evidence.push({ kind: 'claim', unit, day: backdate() });
   }
 
   return record(createProfile(spec.language, spec.day), evidence);
@@ -289,7 +309,47 @@ export function classroomLearner(
   });
 }
 
-/** Nothing at all. The honest starting point, and what every learner is today without placement. */
+/** Nothing at all. The honest starting point for someone who really is starting from zero. */
 export function beginner(pack: LanguagePack, options: ArchetypeOptions): Profile {
   return learner({ language: pack.id, variety: options.variety, day: options.day });
+}
+
+/**
+ * **Day one, after a placement.** The archetype v3 exists for.
+ *
+ * A heritage speaker who has just told the app what she recognises, and about whom NOTHING has been
+ * verified. Every unit is a standing claim: rung 0, never asked, `prior.kind === 'claimed'`.
+ *
+ * This is the state that used to be inexpressible. Before v3 the only way to get prior knowledge in
+ * was to fabricate retrievals, so a placed learner was indistinguishable from one who had genuinely
+ * drilled 4,000 words — and refusing to fabricate meant an empty profile, an empty session, and a
+ * coverage number of 0% on every text for months. Both were wrong, in opposite directions.
+ *
+ * Simulate against this one to check the things that only go wrong here: that day one is not empty,
+ * that the session is full of `'verify'` rather than `'new'`, that a text she can read comes back
+ * `'unverified'` rather than `'too-hard'`, and that the new-material cap does not throttle the
+ * checking of words she already claimed.
+ *
+ * The claim rate thins with rarity, like `heritageSpeaker`'s recognition and for the same reason —
+ * a placement samples what she says she knows, so it inherits the shape of what she knows.
+ */
+export function placedSpeaker(pack: LanguagePack, options: ArchetypeOptions): Profile {
+  const vocab = vocabularyOf(pack, options.frequency);
+  const next = rng(options.seed ?? 23);
+  const claims = vocab.filter((lemma, i) => {
+    const depth = i / Math.max(vocab.length - 1, 1);
+    const formalPenalty = looksFormal(lemma) ? 0.45 : 0;
+    return next() < 0.95 - 0.7 * depth - formalPenalty;
+  });
+
+  return learner({
+    language: pack.id,
+    variety: options.variety,
+    day: options.day,
+    claims,
+    // A placement happens on ONE day, so every claim carries the same anchor. That is realistic and
+    // it is also the hardest case for the tiebreak: several thousand units with identical waits.
+    spreadOverDays: 1,
+    seed: options.seed ?? 23,
+  });
 }

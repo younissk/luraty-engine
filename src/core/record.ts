@@ -2,152 +2,128 @@ import { assertNever } from '../internal/assert.js';
 import type { Evidence } from '../model/evidence.js';
 import type { Day } from '../model/ids.js';
 import type { Profile } from '../model/profile.js';
-import type { UnitState } from '../model/unit.js';
+import { clampStrength, STRENGTH_STEP, UNMET, type Prior, type UnitState } from '../model/unit.js';
 
 /**
  * Folding evidence into a profile.
  *
- * This is the only function in the engine that changes what is believed about a learner.
- * Everything else reads.
+ * This is the only function in the engine that changes what is believed about a learner. Everything
+ * else reads.
  *
  * @module
  */
 
 /**
- * How many consecutive successful retrievals promote a unit out of the learning box.
+ * Later of two days.
  *
- * ⚠️ PROVISIONAL. Two is a starting guess, not a finding — the literature is clear that spacing and
- * cumulative review matter, and notably quiet about the right promotion threshold. It lives here as
- * a named constant so that a simulation can sweep it, and so that changing it is one visible edit
- * rather than a magic number buried in a branch.
- */
-export const PROMOTE_AFTER_SUCCESSES = 2;
-
-/**
- * The `lastProven` of a unit that has never been proven.
+ * ⚠️ MONOTONIC, and every date field in `UnitState` folds through it. A host syncing an offline
+ * queue replays evidence out of order, and taking `evidence.day` directly meant a late-arriving
+ * day-3 item rewound a unit last seen on day 40 — so a unit proven yesterday reported itself last
+ * proven 37 days ago. Nothing errored; it stayed invisible until something did interval arithmetic
+ * on the field, at which point it surfaced as a scheduling bug dated to a commit months earlier.
  *
- * Zero rather than `undefined`, so the field is total and `later()` has an identity element — which
- * is what keeps the fold independent of the order evidence arrives in. It also reads correctly in
- * the scheduler with no special case: `day - 0` is the largest possible wait, so a never-proven unit
- * sorts to the front, which is exactly where it belongs.
+ * Taking the later of the two also makes the result independent of arrival order, which is the
+ * property a sync queue actually needs.
  */
-const NEVER = 0 as Day;
-
-/** Later of two days. Time only ever moves forward for a unit — see {@link applyOne}. */
 function later(a: Day, b: Day): Day {
   return a > b ? a : b;
 }
 
-/**
- * Did this evidence actually prove the unit?
- *
- * The conjunction is the point: a passive signal proves nothing (see {@link Evidence.tested}), and
- * a failed retrieval proves the opposite. Only this advances a unit's "last proven" anchor.
- */
-function proves(evidence: Evidence): boolean {
-  return evidence.tested && evidence.outcome === 'known';
+/** Move a rung by a signed step, saturating at both ends. See {@link STRENGTH_STEP}. */
+function step(state: UnitState, delta: number): UnitState['strength'] {
+  return clampStrength(state.strength + delta);
 }
 
 /**
- * Apply evidence to a single unit's state.
+ * Fold one claim into a unit's prior.
  *
- * The rules, and why each one is there:
+ * A max-fold like every date here, so re-claiming a word is safe and the result does not depend on
+ * which claim `record` happened to meet first. A claim never clears an existing one and never
+ * touches anything else on the unit.
+ */
+function claimed(prior: Prior, day: Day): Prior {
+  switch (prior.kind) {
+    case 'none':
+      return { kind: 'claimed', on: day };
+    case 'claimed':
+      return { kind: 'claimed', on: later(prior.on, day) };
+    default:
+      return assertNever(prior, 'Prior');
+  }
+}
+
+/**
+ * Apply one piece of evidence to one unit's state.
  *
- * - **Only a real retrieval can promote.** A passive signal (`tested: false`) counts as an
- *   encounter and nothing more. This is the rule that stops "did not ask what it means" being
- *   recorded as "knows it" — see {@link Evidence.tested}.
- * - **Failure always demotes.** An understood unit that comes back wrong returns to learning with
- *   its streak cleared. Nothing is permanently known.
- * - **Nothing ever leaves the pool.** There is no third box and no terminal state; an understood
- *   unit stays eligible for review forever. Cumulative review — every session drawing from
- *   everything ever studied rather than the latest batch — is where the large retention gain lives,
- *   and a graduated state would quietly discard it.
+ * The complete rule table lives on {@link Evidence} — this function is that table, executed. The
+ * switch is exhaustive so that a fifth evidence kind becomes a compiler-generated worklist rather
+ * than a silent default.
+ *
+ * Three things are worth naming here because each replaces a v2 rule that turned out to be wrong:
+ *
+ * - **`lastAsked` moves on every retrieval, pass or fail.** v2 had no such field, so a failed word's
+ *   wait grew without bound and it sat at the head of the drill queue forever. This one line is the
+ *   whole leech fix.
+ * - **`lastProven` still moves only on success.** A failure must never be recorded as a proof. That
+ *   is the v1→v2 lesson and it is untouched.
+ * - **A failure costs a rung rather than everything.** v2 demoted an understood unit outright on one
+ *   wrong answer, which is why the known count measured out at `accuracy x pool` instead of tracking
+ *   knowledge. Nothing is permanently known — a unit still falls below {@link KNOWN_AT_STRENGTH}
+ *   after enough misses — but a single slip no longer erases months.
  */
 function applyOne(state: UnitState, evidence: Evidence): UnitState {
-  const seen = state.seen + 1;
-
-  // ⚠️ MONOTONIC, not simply `evidence.day`.
-  //
-  // A host syncing an offline queue replays evidence out of order — that case is anticipated in
-  // `record`'s own contract below. Taking the evidence's day directly meant a late-arriving day-3
-  // item would rewind a unit last seen on day 40, so a unit proven yesterday reported itself last
-  // proven 37 days ago.
-  //
-  // Nothing errors when that happens. It stays invisible until something does interval arithmetic
-  // on these fields, at which point it surfaces as a scheduling bug dated to a commit months
-  // earlier. Taking the later of the two also makes the result independent of arrival order, which
-  // is the property a sync queue actually needs.
-  const lastSeen = later(state.lastSeen, evidence.day);
-
-  switch (state.box) {
-    case 'learning': {
-      // Monotonic like `lastSeen`, and for the same sync reason — but folded only over evidence
-      // that actually PROVED something, so passive exposure and failures leave it alone.
-      const lastProven = proves(evidence)
-        ? later(state.lastProven, evidence.day)
-        : state.lastProven;
-
+  switch (evidence.kind) {
+    case 'retrieval': {
+      const common = {
+        ...state,
+        seen: state.seen + 1,
+        lastSeen: later(state.lastSeen, evidence.day),
+        lastAsked: later(state.lastAsked, evidence.day),
+      };
       if (evidence.outcome === 'unknown') {
-        // Explicitly not known. Reset the run of successes; the encounter still counts. The proven
-        // anchor does not move, so this unit stays at the front of the drill queue — which is where
-        // a word the learner just got wrong belongs.
-        return { box: 'learning', seen, lastSeen, streak: 0, lastProven };
-      }
-      if (!evidence.tested) {
-        // Known, but nothing was actually retrieved. Exposure only — no progress toward promotion.
-        return { ...state, seen, lastSeen };
-      }
-      const streak = state.streak + 1;
-      if (streak >= PROMOTE_AFTER_SUCCESSES) {
-        // ⚠️ `later(...)`, not `evidence.day`, and for the same offline-sync reason as `lastSeen`.
-        //
-        // This used to take the promoting evidence's own day, which is wrong whenever a queue is
-        // replayed out of order: a day-3 success arriving after a day-40 one triggers the promotion
-        // and stamped `confirmedOn: 3`, so a unit proven on day 40 reported itself last proven 37
-        // days earlier. The unit then looked overdue forever and the engine drilled a word the
-        // learner had just got right.
-        //
-        // It was invisible before `lastProven` existed, because nothing else in the state knew that
-        // day 40 had happened. Now the answer is right there, and taking the later of the two makes
-        // the result independent of arrival order — the property a sync queue actually needs.
         return {
-          box: 'understood',
-          seen,
-          lastSeen,
-          confirmedOn: later(state.lastProven, evidence.day),
+          ...common,
+          strength: step(state, -STRENGTH_STEP.missRetrieval),
+          lapses: state.lapses + 1,
         };
       }
-      return { box: 'learning', seen, lastSeen, streak, lastProven };
-    }
-
-    case 'understood': {
-      if (evidence.outcome === 'unknown') {
-        // Forgotten, or never really known. Back to learning.
-        //
-        // `lastProven` inherits `confirmedOn`, because that IS the day this unit was last proven and
-        // nothing about failing today changes when that was. Seeding it to `evidence.day` instead
-        // would record a failure as a proof and park the unit at the back of the queue precisely
-        // when it needs drilling; seeding it to 0 would discard a real fact.
-        return { box: 'learning', seen, lastSeen, streak: 0, lastProven: state.confirmedOn };
-      }
-      if (!evidence.tested) {
-        // Seeing it again without being tested is not proof it is still known — record the
-        // encounter but do not refresh the confirmation date, or a unit could stay "recently
-        // proven" forever purely by appearing on screen.
-        return { ...state, seen, lastSeen };
-      }
-      // Monotonic for the same reason as `lastSeen`: a late-arriving day-3 confirmation must not
-      // make a unit proven on day 40 look 37 days stale.
       return {
-        box: 'understood',
-        seen,
-        lastSeen,
-        confirmedOn: later(state.confirmedOn, evidence.day),
+        ...common,
+        lastProven: later(state.lastProven, evidence.day),
+        strength: step(state, STRENGTH_STEP.gain),
+        lapses: 0,
       };
     }
 
+    case 'exposure':
+      // Met and moved on. `seen` and `lastSeen` and nothing else — no progress toward known, and no
+      // penalty either. She may well have understood it perfectly; nobody asked.
+      return {
+        ...state,
+        seen: state.seen + 1,
+        lastSeen: later(state.lastSeen, evidence.day),
+      };
+
+    case 'help':
+      // She asked. That is a real negative signal and a weaker one than failing a retrieval — and it
+      // is not a lapse, because asking for help is the right thing to do. `lastAsked` does NOT move:
+      // nobody tested her, so the scheduler has no more reason to consider this word attended to
+      // than if she had read straight past it.
+      return {
+        ...state,
+        seen: state.seen + 1,
+        lastSeen: later(state.lastSeen, evidence.day),
+        strength: step(state, -STRENGTH_STEP.missHelp),
+      };
+
+    case 'claim':
+      // Sets `prior` and nothing else — not `seen`, because nobody encountered anything. This is what
+      // makes a claim structurally unable to overwrite a measurement, and it is why the claim path
+      // commutes with every other kind under any permutation.
+      return { ...state, prior: claimed(state.prior, evidence.day) };
+
     default:
-      return assertNever(state, 'UnitState');
+      return assertNever(evidence, 'Evidence');
   }
 }
 
@@ -157,9 +133,26 @@ function applyOne(state: UnitState, evidence: Evidence): UnitState {
  * **This is a fold, and that is a property worth protecting.** Applying evidence one item at a time
  * must equal applying it in one batch — `record(record(p, [a]), [b])` and `record(p, [a, b])` give
  * the same profile. A scheduler's genuinely nasty bugs live in the difference between two paths to
- * the same state, and a property test pins this so that no future optimisation can quietly break
- * it. Anything that makes a batch behave differently from a sequence (a per-call cap, a
- * once-per-batch bonus) breaks the law and needs to be a deliberate decision, not a side effect.
+ * the same state, and a property test pins this so no future optimisation can quietly break it.
+ * Anything that makes a batch behave differently from a sequence (a per-call cap, a once-per-batch
+ * bonus) breaks the law and needs to be a deliberate decision, not a side effect.
+ *
+ * ⚠️ **`strength` and `lapses` are ORDER-DEPENDENT, and every date field is not.** A saturating ±n
+ * walk does not commute: from rung 0, `[miss, hit]` ends at 1 while `[hit, miss]` ends at 0. This is
+ * not new — v2's `streak` and `box` were order-dependent in exactly the same way — but it is newly
+ * LOAD-BEARING, because `coverage()` now reads `strength` where it used to read a box that a
+ * two-success run would have reached from either direction.
+ *
+ * Two consequences a host must know, and `sequence.property.test.ts` pins both:
+ *
+ * 1. **Sort an offline queue by day before folding it.** Same-day ties remain genuinely ambiguous
+ *    and are the host's to break however it likes; across days, sorting removes the question.
+ * 2. **The repair path is a re-fold from the log**, which is why retaining the evidence log is now a
+ *    stated host obligation rather than an unspoken house rule.
+ *
+ * The commuting alternative — storing `proved` and `failed` counts and deriving a rung from their
+ * ratio — was rejected because it can never forget: a word proven 400 times and now failing half the
+ * time would read at the ceiling for months.
  *
  * Evidence is `readonly` so this function cannot push into the caller's array, and the caller loses
  * nothing — a mutable array is assignable to a readonly one.
@@ -174,21 +167,7 @@ export function record(profile: Profile, evidence: readonly Evidence[]): Profile
   const units: Record<string, UnitState> = { ...profile.units };
 
   for (const item of evidence) {
-    const current =
-      units[item.unit] ??
-      // ⚠️ `lastProven: 0` — never proven — and NOT `item.day`. Zero is the identity element of the
-      // `later()` fold, which is what makes the final value independent of the order evidence
-      // arrives in. Seeding it to the minting item's day would make it depend on which item record
-      // happened to meet first, so an offline queue replayed in a different order would produce a
-      // different profile — breaking the fold law this function's contract rests on.
-      ({
-        box: 'learning',
-        seen: 0,
-        lastSeen: item.day,
-        streak: 0,
-        lastProven: NEVER,
-      } satisfies UnitState);
-    units[item.unit] = applyOne(current, item);
+    units[item.unit] = applyOne(units[item.unit] ?? UNMET, item);
   }
 
   return { ...profile, units };

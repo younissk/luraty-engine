@@ -1,8 +1,9 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import type { Evidence } from '../model/evidence.js';
 import { unitKey, variety, type Day, type UnitKey } from '../model/ids.js';
+import { arbEvidence as anyEvidence, arbPassive, kindsIn } from '../testing/evidence.js';
+import { isKnown, KNOWN_AT_STRENGTH, MAX_STRENGTH } from '../model/unit.js';
 
 import { createProfile, unitState } from './profile.js';
 import { record } from './record.js';
@@ -18,14 +19,8 @@ import { record } from './record.js';
 const AR = variety('ar-msa')!;
 const WORDS = ['سوق', 'كتاب', 'مدرسة', 'بيت', 'ماء'];
 
-const arbEvidence: fc.Arbitrary<Evidence> = fc.record({
-  unit: fc
-    .tuple(fc.constantFrom('recognise' as const, 'produce' as const), fc.constantFrom(...WORDS))
-    .map(([dir, word]): UnitKey => unitKey(dir, AR, word)),
-  outcome: fc.constantFrom('known' as const, 'unknown' as const),
-  tested: fc.boolean(),
-  day: fc.integer({ min: 0, max: 400 }).map((n) => n as Day),
-});
+const UNIVERSE = { variety: AR, words: WORDS } as const;
+const arbEvidence = anyEvidence(UNIVERSE);
 
 const fresh = () => createProfile('ar', 0 as Day);
 
@@ -84,7 +79,11 @@ describe('record — laws', () => {
       fc.property(fc.array(arbEvidence, { maxLength: 60 }), (evidence) => {
         const p = record(fresh(), evidence);
         const total = Object.values(p.units).reduce((n, s) => n + s.seen, 0);
-        expect(total).toBe(evidence.length);
+        // ⚠️ NOT `evidence.length`. A claim is not an encounter — nobody met anything, the host
+        // asserted something — so it deliberately leaves `seen` alone. Restating the law is the
+        // price of keeping `seen` honest, and it is worth paying: `seen` is what tells a simulation
+        // whether a word has actually been in front of the learner.
+        expect(total).toBe(evidence.filter((e) => e.kind !== 'claim').length);
       }),
     );
   });
@@ -93,18 +92,17 @@ describe('record — laws', () => {
     // The single most important rule in the engine, stated as a law rather than an example: no
     // quantity of "did not ask what it means" adds up to knowing a word.
     fc.assert(
-      fc.property(
-        fc.array(
-          arbEvidence.map((e): Evidence => ({ ...e, outcome: 'known', tested: false })),
-          { maxLength: 60 },
-        ),
-        (evidence) => {
-          const p = record(fresh(), evidence);
-          for (const state of Object.values(p.units)) {
-            expect(state.box).toBe('learning');
-          }
-        },
-      ),
+      fc.property(fc.array(arbPassive(UNIVERSE), { maxLength: 60 }), (evidence) => {
+        const p = record(fresh(), evidence);
+        for (const state of Object.values(p.units)) {
+          // Strictly WIDER than the v2 law it replaces. That one said "exposure cannot promote";
+          // this one says no combination of exposure, gloss-taps and claims can, which also pins
+          // the rule that a claim buys no head start on the ladder.
+          expect(isKnown(state)).toBe(false);
+          expect(state.strength).toBe(0);
+          expect(state.lastProven).toBe(0);
+        }
+      }),
     );
   });
 
@@ -135,9 +133,35 @@ describe('record — laws', () => {
           const key = unitKey('recognise', AR, word);
           const s = unitState(p, key);
           expect(s.seen).toBeGreaterThanOrEqual(0);
-          expect(['learning', 'understood']).toContain(s.box);
+          // The rung is always ON the ladder. Under v2 this asserted the box was one of two members;
+          // the ladder moves the same guarantee onto a number, where saturating arithmetic is what
+          // could break it.
+          expect(s.strength).toBeGreaterThanOrEqual(0);
+          expect(s.strength).toBeLessThanOrEqual(MAX_STRENGTH);
+          expect(Number.isInteger(s.strength)).toBe(true);
+          expect(isKnown(s)).toBe(s.strength >= KNOWN_AT_STRENGTH);
         }
       }),
     );
+  });
+
+  it('generates every evidence kind — the guard against a vacuous suite', () => {
+    // ⚠️ NOT A LAW ABOUT `record`. A law about the LAWS above.
+    //
+    // When `Evidence` became a four-member union, the mechanical repair for every property test in
+    // this package was to pin `kind: 'retrieval'` and move on. Every law here would have stayed
+    // green while covering one variant in four — and nothing would have said so. This package has
+    // already been bitten by exactly that shape once, when `fc.string()` turned out to emit
+    // printable ASCII only and ten Arabic laws ran on input the pack could not tokenize.
+    //
+    // So the generator is asserted to actually generate. If a future edit narrows it, this fails
+    // here rather than silently hollowing out the eight laws above.
+    const seen = new Set<string>();
+    fc.assert(
+      fc.property(fc.array(arbEvidence, { minLength: 1, maxLength: 40 }), (evidence) => {
+        for (const kind of kindsIn(evidence)) seen.add(kind);
+      }),
+    );
+    expect(seen).toEqual(new Set(['retrieval', 'exposure', 'help', 'claim']));
   });
 });

@@ -1,9 +1,15 @@
-import { assertNever } from '../internal/assert.js';
 import { COVERAGE_BAND } from '../model/coverage.js';
 import type { Day, UnitKey } from '../model/ids.js';
 import type { Profile } from '../model/profile.js';
-import type { ContentRequest, PlanOptions, Session, SessionItem } from '../model/session.js';
-import type { UnitState } from '../model/unit.js';
+import type {
+  ContentRequest,
+  PlanOptions,
+  Reassess,
+  Session,
+  SessionItem,
+  Why,
+} from '../model/session.js';
+import { isKnown, type UnitState } from '../model/unit.js';
 
 /**
  * Deciding what a learner should do next.
@@ -14,14 +20,13 @@ import type { UnitState } from '../model/unit.js';
 /**
  * Days between drills of a unit that is going well.
  *
- * ⚠️ PROVISIONAL, in the same sense as `PROMOTE_AFTER_SUCCESSES` and for the same reason: the
- * literature is emphatic that spacing matters and quiet about the number. It is a named constant so
- * a simulation can sweep it and so changing it is one visible edit.
+ * ⚠️ PROVISIONAL. The literature is emphatic that spacing matters and quiet about the number. It is
+ * a named constant so a simulation can sweep it and so changing it is one visible edit.
  *
  * A single equal interval rather than a ladder, and that is the evidence's own finding: expanding
- * schedules perform about as well as equal ones across 98 effect sizes, so a ladder is complexity
- * with no measurable return. It would also need a repetition count this profile does not have —
- * `seen` counts passive exposure, so a skimmed word would earn a long interval it never proved.
+ * schedules perform about as well as equal ones across 98 effect sizes. See
+ * {@link PlanOptions.reviewGapDays} for why v3 kept it even though it now has the repetition count a
+ * ladder would need.
  */
 export const DEFAULT_REVIEW_GAP_DAYS = 3;
 
@@ -35,44 +40,49 @@ export const DEFAULT_REVIEW_GAP_DAYS = 3;
 export const OVER_ASK = 3;
 
 /**
- * The day a unit was last proven, for either box.
+ * Days without a single successful retrieval before `plan()` asks for a re-measurement.
  *
- * The exhaustive switch is the point: `Understood.confirmedOn` and `Learning.lastProven` answer the
- * same question, so a scheduler needs no special case — but a third box arriving must be a compiler
- * error here rather than a silent default.
+ * ⚠️ PROVISIONAL, and a product rhythm rather than a finding — no literature fixes a reassessment
+ * interval, and a month is the unit people already plan their lives in.
+ *
+ * It counts from the last PROOF and not from the last assessment, which is deliberate and is what
+ * lets the engine own this at all: the engine has no idea what an assessment is. A learner drilling
+ * daily and getting things right resets it constantly and is never nagged; a learner who has drifted
+ * for a month is exactly who a re-measurement is for.
  */
-function provenOn(state: UnitState): Day {
-  switch (state.box) {
-    case 'learning':
-      return state.lastProven;
-    case 'understood':
-      return state.confirmedOn;
-    default:
-      return assertNever(state, 'UnitState');
-  }
+export const REASSESS_AFTER_DAYS = 30;
+
+/** Consecutive failed retrievals before a unit is reported in {@link Session.stuck}. Report-only. */
+export const STUCK_AFTER_LAPSES = 6;
+
+/**
+ * The day the engine last had a reason to attend to this unit.
+ *
+ * ⚠️ **THE ONE-LINE LEECH FIX.** v2 anchored on `lastProven`, so a word the learner never gets right
+ * is never attended to, its wait grows without bound, and it sits at the head of the queue forever —
+ * measured at 44% of every slot for ten words in a pool of 210. Anchoring on the last ASK, and on
+ * the day a claim was made, means every unit's clock actually resets when the engine acts on it.
+ *
+ * A `max` and not a preference: a unit can be both claimed and asked, and the later of the two is
+ * when it was genuinely last handled.
+ */
+function attendedOn(state: UnitState): Day {
+  const claimed = state.prior.kind === 'claimed' ? state.prior.on : (0 as Day);
+  return state.lastAsked > claimed ? state.lastAsked : claimed;
 }
 
 /**
- * Has this unit ever been successfully retrieved?
+ * Which partition this unit belongs to. See {@link Why}.
  *
- * `lastProven: 0` is the never-proven sentinel — see {@link Learning.lastProven}. Reaching the
- * `understood` box requires {@link PROMOTE_AFTER_SUCCESSES} real retrievals, so that variant is
- * proven by construction and needs no field to say so.
- *
- * ⚠️ The sentinel is ambiguous at exactly one point: a unit genuinely proven on day 0, in a host
- * whose epoch is day 0. Such a unit reads as never-proven and is drilled once immediately instead of
- * after the gap. That is the harmless direction, and it is inherent to storing "never" as a number —
- * removing it means a wire-schema change, not a scheduler change.
+ * Ordered from most specific to least, and the first two are the ones that carry product meaning:
+ * a standing claim is something to CONFIRM rather than teach, and a word asked but never once right
+ * is mid-acquisition rather than up for review.
  */
-function neverProven(state: UnitState): boolean {
-  switch (state.box) {
-    case 'learning':
-      return state.lastProven === 0;
-    case 'understood':
-      return false;
-    default:
-      return assertNever(state, 'UnitState');
+function whyFor(state: UnitState): Why {
+  if (state.lastAsked === 0) {
+    return state.prior.kind === 'claimed' ? 'verify' : 'new';
   }
+  return state.lastProven === 0 ? 'relearn' : 'review';
 }
 
 /**
@@ -101,6 +111,12 @@ function clamp(value: number | undefined, fallback: number): number {
  * pack at all, so a pack bug can never be mistaken for a scheduling bug. **Scheduling is
  * language-free; only measurement needs a language.**
  *
+ * ⚠️ That still holds in v3, and it was re-checked rather than assumed. The obvious way to fix an
+ * empty day-one session is to let `plan()` pull unmet words out of a frequency list — which would
+ * make `rank` reachable, make the engine language-aware, and quietly break the law that every item
+ * is a unit the learner has actually met. Instead the engine REQUESTS them:
+ * {@link ContentRequest.newUnitsWanted}.
+ *
  * **Takes no seed either.** Selection scores by days-waiting, a unit that is served resets its
  * anchor to today while every unit that is not gains a day — so the unserved set strictly dominates
  * from the next day onward and every unit is reached within one rotation of the pool. There is no
@@ -122,13 +138,16 @@ function clamp(value: number | undefined, fallback: number): number {
  * - **Fluency tasks** need a task model. There is no representation of a timed speaking repetition.
  * - **Weighting production over recognition** is deliberately absent rather than deferred. The two
  *   directions are separate units competing on the same age score, so production earns its share by
- *   being practised less — not by a weight nobody has calibrated. A weight would be a second
- *   uncalibrated constant, and no simulation sweeps the first one yet.
+ *   being practised less — not by a weight nobody has calibrated.
  */
 export function plan(profile: Profile, options: PlanOptions): Session {
   const day = options.day;
   const maxItems = clamp(options.maxItems, 0);
   const gap = clamp(options.reviewGapDays, DEFAULT_REVIEW_GAP_DAYS);
+  // Clamped INTO the session size rather than merely to a non-negative number: a cap larger than the
+  // session cannot mean anything, and letting it through would make the over-ask arithmetic below
+  // request more new content than a session could ever show.
+  const maxNew = Math.min(clamp(options.maxNew, 0), maxItems);
 
   // Built once per call rather than per comparison: a comparator that scans an array is O(n) inside
   // an O(n log n) sort, which is how a session of 10,000 units becomes a frozen frame.
@@ -138,42 +157,51 @@ export function plan(profile: Profile, options: PlanOptions): Session {
   });
 
   const due: SessionItem[] = [];
+  const stuck: UnitKey[] = [];
+  // For the reassessment trigger. `0` if nothing has ever been proven, which reads as "never" and
+  // makes `daysSinceProven` fall out as the full span since the epoch.
+  let lastProvenAnywhere = 0 as Day;
+  let claimsStanding = 0;
+
   for (const unit of Object.keys(profile.units) as UnitKey[]) {
     const state = profile.units[unit];
-    // ⚠️ A KNOWN EQUIVALENT MUTANT, like `clamp`'s `undefined` check and kept for the same reason.
-    // The key came from `Object.keys`, so the lookup cannot miss; the branch exists only because
-    // `noUncheckedIndexedAccess` types it as possibly-undefined. `npm run mutate` reports it as a
-    // survivor forever. The alternative is a non-null assertion, and a `!` that lies about an index
+    // ⚠️ A KNOWN EQUIVALENT MUTANT, kept deliberately. The key came from `Object.keys`, so the lookup
+    // cannot miss; the branch exists only because `noUncheckedIndexedAccess` types it as
+    // possibly-undefined. The alternative is a non-null assertion, and a `!` that lies about an index
     // signature is worse in the file than a survivor with a comment explaining itself.
     if (state === undefined) continue;
 
-    // Whole days since this unit was last PROVEN. Never-proven units carry an anchor of 0, so they
-    // report the full span since the epoch — the largest possible wait, sorting them first with no
-    // special case anywhere.
+    if (state.lastProven > lastProvenAnywhere) lastProvenAnywhere = state.lastProven;
+    if (state.lapses >= STUCK_AFTER_LAPSES) stuck.push(unit);
+
+    const why = whyFor(state);
+    if (why === 'verify') claimsStanding += 1;
+
+    // Whole days since this unit was last ATTENDED — asked, or claimed. Never-attended units carry
+    // an anchor of 0, so they report the full span since the epoch, which is the largest possible
+    // wait and sorts them first with no special case anywhere.
     //
     // Clamped at 0 because `advanceTo` refuses to move a profile backwards but `options.day` is the
     // host's own number and may be behind `profile.day`. A negative wait would sort a unit as if it
-    // were fresher than one proven today.
-    const daysWaiting = Math.max(0, day - provenOn(state));
+    // were fresher than one attended today.
+    const daysWaiting = Math.max(0, day - attendedOn(state));
 
-    // ⚠️ THE GAP APPLIES ONLY TO UNITS THAT HAVE BEEN PROVEN, and leaving that out was a real bug.
+    // ⚠️ THE GAP APPLIES ONLY TO UNITS THAT COUNT AS KNOWN, and that is v3's one change here.
     //
-    // `reviewGapDays` means "days a unit must wait AFTER being proven" — see {@link PlanOptions}. A
-    // never-proven unit has nothing to wait out. Gating it on the gap anyway made the engine's
-    // decisions depend on which epoch the HOST happened to pick for day 0: a never-proven unit
-    // scores `day - 0`, so with a young epoch that score is small and the unit is filtered out.
+    // v2 gated anything ever proven, which left a unit that had been proven once and failed twice
+    // waiting three days between attempts while it was actively being acquired. The rung ladder
+    // gives the honest test: a unit below {@link KNOWN_AT_STRENGTH} is still being learned and may
+    // come back tomorrow; a unit at or above it is being maintained and waits out the gap.
     //
-    // Measured on a beginner started at day 0: sessions on days 1 and 2 came back EMPTY, while the
-    // identical profile started at day 2000 got its items immediately. `runDemo` printed the empty
-    // rows as "—" and nothing failed. Two days of nothing to do is not a small bug for a learner
-    // opening the app for the first time.
-    //
-    // The ordering below needs no matching special case: `lastProven` is never negative, so a
-    // never-proven unit's `day - 0` is greater than or equal to every proven unit's `day - n`. It
-    // already sorts first, at every epoch.
-    if (!neverProven(state) && daysWaiting < gap) continue;
+    // This subsumes v2's own never-proven exemption rather than replacing it — a never-proven unit
+    // is at rung 0 and is therefore already exempt, so the special case that used to be spelled out
+    // here is now a consequence. That exemption mattered: gating never-proven units on the gap made
+    // the engine's decisions depend on which epoch the HOST picked for day 0, and a beginner started
+    // at day 0 got EMPTY sessions on days 1 and 2 while the identical profile started at day 2000
+    // got its items immediately.
+    if (isKnown(state) && daysWaiting < gap) continue;
 
-    due.push({ unit, daysWaiting });
+    due.push({ unit, daysWaiting, why });
   }
 
   // ⚠️ THIS COMPARATOR IS THE ONLY THING MAKING A SESSION REPRODUCIBLE, so it is TOTAL on purpose.
@@ -182,16 +210,16 @@ export function plan(profile: Profile, options: PlanOptions): Session {
   // makes it total — keys are unique in a Record, so the comparator never returns 0 and the result
   // cannot depend on input order or on sort stability.
   //
+  // ⚠️ `why` is deliberately NOT a tier. Partitioning the sort by category would mean a fresh new
+  // word outranking a review that has waited a year, and the budget below already does the only job
+  // a category tier would do — bound how much new material lands — without reordering anything.
+  // One ordering, one place.
+  //
   // `Object.keys` above returns insertion order, and a profile built by replaying evidence has a
   // DIFFERENT insertion order from the same profile loaded from storage — `serialize` writes its
   // units sorted, so `deserialize` inserts them sorted. A comparator that returned 0 for equal waits
   // would leave those ties to `Array.prototype.sort`, and a learner would get one session before an
   // app restart and a different one after, with both looking perfectly plausible.
-  //
-  // Because unit keys are unique in a Record, the key tiebreak never returns 0 — so the result is
-  // independent of input order and sort stability is irrelevant. An earlier draft ALSO pre-sorted
-  // the keys; mutation testing showed that made this line's tiebreak untestable, because the two
-  // orderings agreed. One guarantee, in one place, pinned by a round-trip test.
   //
   // The comparison is on UTF-16 code units, the same total order `persist.ts` uses, and for the same
   // two reasons: `localeCompare` is ICU-backed and unavailable on Hermes, and a locale-aware sort
@@ -206,14 +234,92 @@ export function plan(profile: Profile, options: PlanOptions): Session {
     return a.unit < b.unit ? -1 : 1;
   });
 
-  const items = due.slice(0, maxItems);
+  const items = take(due, maxItems, maxNew);
+  const named = take(due, maxItems * OVER_ASK, maxNew * OVER_ASK);
 
   const content: ContentRequest = {
     // Named beyond what the session uses, so a host missing an exercise loses that word rather than
-    // shortening the session.
-    units: due.slice(0, maxItems * OVER_ASK).map((item) => item.unit),
+    // shortening the session. The new-material cap is scaled by the same factor, so over-asking
+    // cannot smuggle in extra new words.
+    units: named.map((item) => item.unit),
     minPassageTokens: COVERAGE_BAND.minTokens,
+    // What the cap allowed and the profile could not supply. On a fresh profile this is the whole
+    // cap, which is the engine saying "I need vocabulary, not a scheduler".
+    newUnitsWanted: Math.max(0, maxNew - items.filter((item) => item.why === 'new').length),
   };
 
-  return { day, items, content };
+  return {
+    day,
+    items,
+    content,
+    reassess: reassessment(day, lastProvenAnywhere, claimsStanding),
+    stuck,
+  };
+}
+
+/**
+ * Take up to `limit` items, admitting at most `newLimit` of the `'new'` ones.
+ *
+ * ⚠️ ONE PASS IN COMPARATOR ORDER, WITH A DEFERRED QUEUE — not two sorted buckets merged. The
+ * ordering above is the whole scheduling opinion, and anything that reorders after it is a second,
+ * unstated opinion. Here the cap only ever SKIPS; it never promotes.
+ *
+ * The deferred pass is what stops the cap shortening a session. A host that claims nothing and
+ * introduces three words on day one has almost nothing but new material, so a naive cap would hand
+ * back a three-item session for a learner who asked for twelve. Skipped new items come back, still
+ * in comparator order, to fill whatever review and verification could not.
+ *
+ * ⚠️ Only `'new'` is capped. `'verify'` draws from the review budget on purpose: confirming a word
+ * she told you she knows is not teaching her a word, and capping it would make a placement of 800
+ * words take months to check at the same rate as learning 800 new ones.
+ */
+function take(due: readonly SessionItem[], limit: number, newLimit: number): SessionItem[] {
+  // ⚠️ SELECTED BY INDEX, then filtered — so the result is always in comparator order.
+  //
+  // The obvious implementation pushes chosen items into one array and appends the deferred ones
+  // afterwards, and it is wrong in a way no example test would have caught: a deferred new word
+  // lands at the END of the session rather than at its own score. `plan.property.test.ts`'s
+  // comparator law found it on the third counter-example. Order is part of what `plan` returns, and
+  // a scheduler whose output order depends on which pass admitted an item has two orderings.
+  const selected = new Array<boolean>(due.length).fill(false);
+  let taken = 0;
+  let introduced = 0;
+
+  for (const [i, item] of due.entries()) {
+    if (taken >= limit) break;
+    if (item.why === 'new') {
+      if (introduced >= newLimit) continue;
+      introduced += 1;
+    }
+    selected[i] = true;
+    taken += 1;
+  }
+
+  // The deferred pass: new material skipped by the cap comes back to fill slots nothing else could
+  // use. This is what stops the cap SHORTENING a session — a learner on day two has almost nothing
+  // but new material, and handing her a three-item session when she asked for twelve trades a
+  // silent scheduling bug for a loud emptiness bug.
+  for (const [i, item] of due.entries()) {
+    if (taken >= limit) break;
+    if (selected[i] === true || item.why !== 'new') continue;
+    selected[i] = true;
+    taken += 1;
+  }
+
+  return due.filter((_, i) => selected[i] === true);
+}
+
+/**
+ * Whether it is time to re-measure. See {@link Reassess}.
+ *
+ * A profile that has never proven anything reads as `daysSinceProven: day` — the full span since the
+ * epoch — so a learner who has been placed and never drilled becomes due on schedule rather than
+ * never. That is the case the trigger exists for.
+ */
+function reassessment(day: Day, lastProven: Day, claimsStanding: number): Reassess {
+  const daysSinceProven = Math.max(0, day - lastProven);
+  if (daysSinceProven >= REASSESS_AFTER_DAYS) {
+    return { kind: 'due', daysSinceProven, claimsStanding };
+  }
+  return { kind: 'not-due', daysUntil: REASSESS_AFTER_DAYS - daysSinceProven };
 }

@@ -8,12 +8,25 @@ import { PROFILE_SCHEMA_VERSION } from '../model/wire.js';
 import { deserialize, serialize } from './persist.js';
 import { advanceTo, createProfile, unitState } from './profile.js';
 import { record } from './record.js';
+import { isKnown } from '../model/unit.js';
 
 const AR = variety('ar-msa')!;
 const D = (n: number): Day => day(n)!;
 
+/**
+ * Build evidence from the v2 vocabulary, so the examples below stay readable.
+ *
+ * `tested` is no longer a field — it is the choice of VARIANT. Keeping the parameter here maps the
+ * old vocabulary onto the new one in one place instead of at forty call sites, and it makes the
+ * translation explicit: a passive signal is `exposure` when she read past the word and `help` when
+ * she asked. v2 could not tell those apart, which is how a gloss tap came to demote a word she had
+ * proven four months earlier.
+ */
 function ev(unit: UnitKey, outcome: 'known' | 'unknown', tested: boolean, d: number): Evidence {
-  return { unit, outcome, tested, day: D(d) };
+  if (tested) return { kind: 'retrieval', unit, outcome, day: D(d) };
+  return outcome === 'known'
+    ? { kind: 'exposure', unit, day: D(d) }
+    : { kind: 'help', unit, day: D(d) };
 }
 
 function populated() {
@@ -193,7 +206,15 @@ describe('deserialize — never throws', () => {
       language: 'ar',
       day: D(5),
       units: {
-        [colonised]: { box: 'learning', seen: 1, lastSeen: D(5), streak: 0, lastProven: D(0) },
+        [colonised]: {
+          seen: 1,
+          lastSeen: D(5),
+          lastAsked: D(0),
+          lastProven: D(0),
+          prior: { kind: 'none' },
+          strength: 0,
+          lapses: 0,
+        },
       },
     };
     const loaded = deserialize(serialize(p));
@@ -207,12 +228,34 @@ describe('deserialize — never throws', () => {
     // blob carrying two is hand-edited or corrupt either way.
     const key = unitKey('recognise', AR, 'سوق');
     const blob = JSON.stringify({
-      v: 2,
+      v: 3,
       language: 'ar',
       day: 10,
       units: [
-        [key, { box: 'learning', seen: 1, lastSeen: 3, streak: 0, lastProven: 0 }],
-        [key, { box: 'understood', seen: 99, lastSeen: 9, confirmedOn: 9 }],
+        [
+          key,
+          {
+            seen: 1,
+            lastSeen: 3,
+            lastAsked: 0,
+            lastProven: 0,
+            prior: null,
+            strength: 0,
+            lapses: 0,
+          },
+        ],
+        [
+          key,
+          {
+            seen: 99,
+            lastSeen: 9,
+            lastAsked: 9,
+            lastProven: 9,
+            prior: null,
+            strength: 2,
+            lapses: 0,
+          },
+        ],
       ],
     });
     const got = deserialize(blob);
@@ -229,10 +272,13 @@ describe('deserialize — never throws', () => {
     if (!loaded.ok) return;
 
     const key = unitKey('recognise', AR, 'سوق');
-    expect(unitState(loaded.value, key).box).toBe('understood');
+    expect(isKnown(unitState(loaded.value, key))).toBe(true);
 
     // And it keeps folding: a restored profile is a real profile, not a read-only snapshot.
-    const after = record(loaded.value, [ev(key, 'unknown', true, 30)]);
-    expect(unitState(after, key).box).toBe('learning');
+    const after = record(loaded.value, [
+      ev(key, 'unknown', true, 30),
+      ev(key, 'unknown', true, 31),
+    ]);
+    expect(isKnown(unitState(after, key))).toBe(false);
   });
 });

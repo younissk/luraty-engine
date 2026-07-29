@@ -13,6 +13,29 @@ import type { Day, UnitKey } from './ids.js';
  * @module
  */
 
+/**
+ * Why an item is in the session — the partition it was drawn from.
+ *
+ * Derived on every call and stored nowhere, so it can never disagree with the state it describes.
+ *
+ * ⚠️ THE MOST PRODUCT-VISIBLE FIELD IN v3. `'verify'` is what lets day one say *"you told us you
+ * know this — let's check"* to a fluent adult, instead of labelling 800 words she grew up hearing as
+ * "new". A heritage speaker being called a beginner is the specific failure this product exists to
+ * avoid, and until now the engine had no way to tell the host not to.
+ */
+export type Why =
+  /**
+   * A standing claim: the host asserted it and nobody has checked. Draws from the REVIEW budget, not
+   * the new-material cap — confirming what she already said she knows is not teaching her a word.
+   */
+  | 'verify'
+  /** Never asked and never claimed. **The only value {@link PlanOptions.maxNew} caps.** */
+  | 'new'
+  /** Asked at least once and never once right. Maintenance, uncapped — she is mid-acquisition. */
+  | 'relearn'
+  /** Proven at least once. Maintenance, uncapped. */
+  | 'review';
+
 export type PlanOptions = {
   /** The day to plan for. Time is data; there is no clock in here to read. */
   readonly day: Day;
@@ -28,14 +51,54 @@ export type PlanOptions = {
   readonly maxItems: number;
 
   /**
-   * Days a unit must wait after being proven before it is drilled again. Defaults to
-   * {@link DEFAULT_REVIEW_GAP_DAYS}.
+   * How many genuinely NEW units may be introduced today. Clamped to `[0, maxItems]`.
    *
-   * A single equal interval, not a ladder. That is the literature's own finding rather than a
-   * simplification: expanding schedules perform about as well as equal ones, so an interval ladder
-   * is complexity with no measurable return — and it would need a repetition count the profile does
-   * not carry, because `seen` is incremented by passive exposure and would hand a six-month interval
-   * to a word the learner had merely skimmed forty times.
+   * ⚠️ **REQUIRED, WITH NO DEFAULT, AND THAT IS THE FIX RATHER THAN A NUISANCE.** A never-asked
+   * unit's wait is `day - 0`, which strictly dominates every attended unit at every epoch. So the
+   * host's introduction rate silently decided the entire review schedule, and the engine could
+   * neither express nor cap it. Measured: a host feeding 20 new words a day into a 20-item budget
+   * gave review **0% of slots, forever**; at 15/day it got 24.7%. Nothing errored and nothing looked
+   * wrong.
+   *
+   * There is no safe default. `0` means she never learns a word; `maxItems` reproduces the measured
+   * bug exactly. It is a POLICY the engine cannot infer — only the host knows how long its exercises
+   * take — so it becomes a number a human typed. Measured at `maxNew: 5` in the same fixture, review
+   * gets **71.7%**.
+   *
+   * ⚠️ **A CEILING ON CROWDING-OUT, NOT AN ABSOLUTE ONE — and the difference is worth reading.**
+   * New items skipped by the cap are DEFERRED rather than dropped, and come back to fill slots that
+   * maintenance could not use. So a host that claims nothing and introduces three words on day one
+   * still gets a full session rather than a three-item one, and `maxNew: 0` on a profile with
+   * nothing but new material yields one word rather than an empty screen.
+   *
+   * Two laws in `plan.property.test.ts` pin exactly what that buys, and both were arrived at only
+   * after fast-check refuted a more confident-sounding version:
+   *
+   * 1. `maxItems - maxNew` slots are RESERVED for maintenance, and maintenance takes them whenever
+   *    it has the work. This is the one that forbids the measured failure.
+   * 2. The cap is exceeded only once maintenance has run out entirely.
+   *
+   * What it deliberately does NOT promise is `introduced <= maxNew` in all cases. That statement is
+   * false, and writing it in this docstring would have been a lie the tests disprove.
+   */
+  readonly maxNew: number;
+
+  /**
+   * Days a unit must wait after reaching {@link KNOWN_AT_STRENGTH} before being drilled again.
+   * Defaults to {@link DEFAULT_REVIEW_GAP_DAYS}.
+   *
+   * ⚠️ **v3 CHANGED WHO IT APPLIES TO**, and this is the only place `strength` reaches the
+   * scheduler. v2 applied the gap to anything ever proven; v3 applies it only at or above the known
+   * rung. A unit below that line is in ACQUISITION and may come back the next day — which is v2's
+   * own "a never-proven unit has nothing to wait out" rule, generalised to the one thing that now
+   * measures proof.
+   *
+   * A single equal interval, not a ladder, and that is still the literature's own finding rather
+   * than a simplification: expanding schedules perform about as well as equal ones across 98 effect
+   * sizes. v3 now HAS the repetition count a ladder would need, so the old "we could not build one
+   * anyway" argument has expired — the reason is now purely that a ladder would push
+   * `plan.property.test.ts`'s anti-starvation horizon from `rotation + gap` out to `rotation + 96`,
+   * converting an arithmetic guarantee into a judgement call.
    */
   readonly reviewGapDays?: number;
 
@@ -44,9 +107,8 @@ export type PlanOptions = {
    *
    * ⚠️ WHY THIS EXISTS. Ties are not an edge case — they are the normal case. A learner who was
    * placed, or who read a passage, acquires hundreds of units on the same day, and every one of them
-   * then carries the same anchor forever. Without a priority the engine falls back to comparing the
-   * unit key, which is a total order and therefore correct, and which sorts the session
-   * ALPHABETICALLY:
+   * then carries the same anchor. Without a priority the engine falls back to comparing the unit
+   * key, which is a total order and therefore correct, and which sorts the session ALPHABETICALLY:
    *
    *     agieren  alternative  anders  andrea  anforderung  ansatz  apotheke
    *
@@ -57,8 +119,10 @@ export type PlanOptions = {
    * engine stays language-free — it never looks the words up, it only respects the order it is
    * given — and a host that wants to order by topic, difficulty or lesson plan can do that instead.
    *
-   * Units absent from this list sort after every unit in it. Omit it and the key tiebreak applies,
-   * which is what every earlier version did.
+   * A good second source: `Coverage.claimedLemmas` from the passage she is about to read. Those are
+   * the unchecked words standing between her and a verdict on that text.
+   *
+   * Units absent from this list sort after every unit in it. Omit it and the key tiebreak applies.
    */
   readonly priority?: readonly UnitKey[];
 };
@@ -67,16 +131,26 @@ export type PlanOptions = {
 export type SessionItem = {
   readonly unit: UnitKey;
   /**
-   * Days since this unit was last successfully retrieved.
+   * Days since the engine last had a reason to attend to this unit —
+   * `day - max(lastAsked, prior.on)`, clamped at 0.
    *
-   * This IS the selection score, exposed rather than hidden: a learner asking "why am I seeing this
+   * ⚠️ **THE NAME IS KEPT AND THE MEANING IS GENERALISED, deliberately.** v2 defined it as
+   * days-since-PROVEN, and that definition is what pinned failing words at the head of the queue
+   * forever: a word she never gets right is never proven, so its wait grows without bound. Measured,
+   * ten such words in a pool of 210 took 44% of every slot for two months.
+   *
+   * v3 defines it as days-since-ATTENDED, which covers all four {@link Why} arms with one number: a
+   * claim waiting to be checked, a failed word waiting to come round again, a proven word waiting
+   * for review. All of those genuinely are waiting, so `daysWaiting` is still the true name —
+   * `daysSinceAsked` or `daysOverdue` would each be true of only some arms.
+   *
+   * Still THE selection score, exposed rather than hidden: a learner asking "why am I seeing this
    * again?" deserves an answer, and ipsative feedback — progress against your own past — is what the
    * evidence says counters the plateau feeling at intermediate levels.
-   *
-   * A unit that has never been proven reports the full span since the profile's epoch, which is the
-   * largest possible wait and therefore sorts first.
    */
   readonly daysWaiting: number;
+  /** Which partition this came from. See {@link Why}. */
+  readonly why: Why;
 };
 
 /**
@@ -106,7 +180,50 @@ export type ContentRequest = {
    * {@link COVERAGE_BAND.minTokens}.
    */
   readonly minPassageTokens: number;
+
+  /**
+   * New slots `plan()` was allowed to fill and could NOT, for want of any unmet unit in the profile.
+   *
+   * ⚠️ **THE ANSWER TO THE EMPTY-DAY-ONE SESSION, and the only thing the engine may honestly do
+   * about it.** `plan()` iterates `profile.units`, and a new profile is `{}` — so an empty profile
+   * yields an empty session no matter how clever the scheduler gets. Measured: a fresh profile
+   * returned 0 items and 0 content units, and nothing said why.
+   *
+   * The engine has no vocabulary of its own and must not acquire one. So it REQUESTS: *"I had N new
+   * slots I could not fill; send me words she has not met."* The host picks them from the frequency
+   * list it already loaded, shows them, and records the evidence — after which they are ordinary
+   * units.
+   *
+   * This is `ContentRequest`'s existing described-not-fetched idiom exactly, and it is why `plan()`
+   * still needs no language pack: work the four-function contract through again and `split` has no
+   * text, `compare` has no answer, `key` has no surface, and `rank` is still never consulted. It
+   * also keeps every unit in {@link Session.items} one the learner has actually met — which the
+   * alternative, letting `plan()` emit units absent from the profile, silently breaks.
+   */
+  readonly newUnitsWanted: number;
 };
+
+/**
+ * Whether it is time to re-measure.
+ *
+ * ⚠️ **THE ENGINE OWNS THE TRIGGER; THE HOST OWNS THE INSTRUMENT.** This says *when*, never *how* —
+ * it names no units and prescribes no method, because how to assess somebody is a product decision
+ * with several defensible answers. That division is also what keeps `plan()` free of a pack and a
+ * seed, since deciding "it has been a month" needs neither.
+ *
+ * Computed from `profile.day` and the units alone, on every call, and stored nowhere. A trigger that
+ * were stored would have to be cleared by something, and nothing here writes to a profile except
+ * `record`.
+ */
+export type Reassess =
+  | { readonly kind: 'not-due'; readonly daysUntil: number }
+  | {
+      readonly kind: 'due';
+      /** `day - max(lastProven)` across the profile; `day` if nothing has ever been proven. */
+      readonly daysSinceProven: number;
+      /** Units still resting on an unchecked claim. Context for the host, not the trigger. */
+      readonly claimsStanding: number;
+    };
 
 export type Session = {
   readonly day: Day;
@@ -114,8 +231,23 @@ export type Session = {
    * The drills, best-first, truncated to `maxItems`.
    *
    * MAY BE EMPTY, and that is a real state rather than an error: a learner with nothing due has
-   * nothing due. The host shows reading instead.
+   * nothing due. Check {@link ContentRequest.newUnitsWanted} before concluding there is nothing to
+   * do — an empty list with a positive want means "I need vocabulary, not a scheduler".
    */
   readonly items: readonly SessionItem[];
   readonly content: ContentRequest;
+  /** Whether to re-measure. See {@link Reassess}. */
+  readonly reassess: Reassess;
+  /**
+   * Units at `lapses >= STUCK_AFTER_LAPSES` — failed that many times in a row.
+   *
+   * ⚠️ NAMED, NOT HIDDEN. The obvious alternative is a backoff that shows a repeatedly-failed word
+   * less often, and it was rejected twice: it costs uncalibrated constants, and showing a word she
+   * is failing LESS is backwards for an acquisition frontier. A word failed six times running is a
+   * content or method problem — the exercise is wrong, the audio is bad, the gloss is misleading —
+   * and quietly reducing its frequency is precisely how that stays invisible.
+   *
+   * These units are NOT excluded from `items`. They are reported alongside it.
+   */
+  readonly stuck: readonly UnitKey[];
 };

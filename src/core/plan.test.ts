@@ -8,7 +8,8 @@ import type { Profile } from '../model/profile.js';
 import { DEFAULT_REVIEW_GAP_DAYS, OVER_ASK, plan } from './plan.js';
 import { deserialize, serialize } from './persist.js';
 import { advanceTo, createProfile } from './profile.js';
-import { PROMOTE_AFTER_SUCCESSES, record } from './record.js';
+import { record } from './record.js';
+import { KNOWN_AT_STRENGTH } from '../model/unit.js';
 
 /**
  * Examples for {@link plan}.
@@ -24,8 +25,8 @@ const U = (word: string): UnitKey => unitKey('recognise', V, word);
 function proven(entries: readonly (readonly [string, number])[]): Profile {
   const evidence: Evidence[] = [];
   for (const [word, day] of entries) {
-    for (let i = 0; i < PROMOTE_AFTER_SUCCESSES; i++) {
-      evidence.push({ unit: U(word), outcome: 'known', tested: true, day: D(day) });
+    for (let i = 0; i < KNOWN_AT_STRENGTH; i++) {
+      evidence.push({ kind: 'retrieval', unit: U(word), outcome: 'known', day: D(day) });
     }
   }
   return record(createProfile('ar', D(0)), evidence);
@@ -41,13 +42,17 @@ describe('plan', () => {
       ['stale', 1],
       ['middling', 10],
     ]);
-    expect(words(plan(p, { day: D(30), maxItems: 3 }))).toEqual(['stale', 'middling', 'fresh']);
+    expect(words(plan(p, { day: D(30), maxItems: 3, maxNew: 3 }))).toEqual([
+      'stale',
+      'middling',
+      'fresh',
+    ]);
   });
 
   it('reports the wait it selected on, so a host can explain itself', () => {
     // A learner asking "why am I seeing this again?" deserves an answer, and comparison against
     // your own past is what the evidence says counters the intermediate plateau feeling.
-    const session = plan(proven([['x', 4]]), { day: D(30), maxItems: 5 });
+    const session = plan(proven([['x', 4]]), { day: D(30), maxItems: 5, maxNew: 5 });
     expect(session.items[0]?.daysWaiting).toBe(26);
   });
 
@@ -56,8 +61,8 @@ describe('plan', () => {
     // 0, so it reports the full span since the epoch, which is the largest possible wait. If someone
     // later "fixes" the anchor to the day the unit was met, this is the test that fails.
     let p = proven([['old', 1]]);
-    p = record(p, [{ unit: U('brandnew'), outcome: 'unknown', tested: false, day: D(29) }]);
-    expect(words(plan(p, { day: D(30), maxItems: 2 }))[0]).toBe('brandnew');
+    p = record(p, [{ kind: 'help', unit: U('brandnew'), day: D(29) }]);
+    expect(words(plan(p, { day: D(30), maxItems: 2, maxNew: 2 }))[0]).toBe('brandnew');
   });
 
   // ── The gap applies only to units that have been PROVEN ──────────────────────────────────────
@@ -68,11 +73,11 @@ describe('plan', () => {
   it('drills a never-proven unit immediately, whatever epoch the host chose', () => {
     const met = (start: number): Profile =>
       record(createProfile('ar', D(start)), [
-        { unit: U('fresh'), outcome: 'unknown', tested: false, day: D(start + 1) },
+        { kind: 'help', unit: U('fresh'), day: D(start + 1) },
       ]);
 
     for (const start of [0, 1, 2, 2000]) {
-      const session = plan(met(start), { day: D(start + 1), maxItems: 5 });
+      const session = plan(met(start), { day: D(start + 1), maxItems: 5, maxNew: 5 });
       expect(words(session)).toEqual(['fresh']);
     }
   });
@@ -82,12 +87,12 @@ describe('plan', () => {
     // The bug above was exactly a violation of this, visible only near day 0.
     const at = (start: number): string[] => {
       let p = record(createProfile('ar', D(start)), [
-        { unit: U('fresh'), outcome: 'unknown', tested: false, day: D(start + 1) },
-        { unit: U('known'), outcome: 'known', tested: true, day: D(start + 1) },
-        { unit: U('known'), outcome: 'known', tested: true, day: D(start + 1) },
+        { kind: 'help', unit: U('fresh'), day: D(start + 1) },
+        { kind: 'retrieval', unit: U('known'), outcome: 'known', day: D(start + 1) },
+        { kind: 'retrieval', unit: U('known'), outcome: 'known', day: D(start + 1) },
       ]);
       p = advanceTo(p, D(start + 2));
-      return words(plan(p, { day: D(start + 2), maxItems: 5 }));
+      return words(plan(p, { day: D(start + 2), maxItems: 5, maxNew: 5 }));
     };
     expect(at(0)).toEqual(at(500));
     expect(at(0)).toEqual(['fresh']); // proven yesterday is still inside the gap
@@ -97,38 +102,89 @@ describe('plan', () => {
     // The other side of the fix: `neverProven` must key off the SENTINEL, not off a small number.
     // A unit proven on day 1 in a day-1 epoch is proven, and the gap applies to it.
     const p = proven([['x', 1]]);
-    expect(plan(p, { day: D(2), maxItems: 5 }).items).toHaveLength(0);
-    expect(plan(p, { day: D(4), maxItems: 5 }).items).toHaveLength(1);
+    expect(plan(p, { day: D(2), maxItems: 5, maxNew: 5 }).items).toHaveLength(0);
+    expect(plan(p, { day: D(4), maxItems: 5, maxNew: 5 }).items).toHaveLength(1);
   });
 
   it('does not drill a word the learner read today', () => {
     // The reason `lastProven` exists. Reading refreshes `lastSeen`; scheduling on that would push
     // every word in today's passage to the BACK of the queue — exactly the words being met now.
     // Here the opposite must hold: passive exposure changes nothing about when it is due.
-    const before = plan(proven([['x', 1]]), { day: D(30), maxItems: 5 });
-    const p = record(proven([['x', 1]]), [
-      { unit: U('x'), outcome: 'known', tested: false, day: D(30) },
-    ]);
-    expect(plan(p, { day: D(30), maxItems: 5 }).items).toEqual(before.items);
+    const before = plan(proven([['x', 1]]), { day: D(30), maxItems: 5, maxNew: 5 });
+    const p = record(proven([['x', 1]]), [{ kind: 'exposure', unit: U('x'), day: D(30) }]);
+    expect(plan(p, { day: D(30), maxItems: 5, maxNew: 5 }).items).toEqual(before.items);
   });
 
-  it('brings a failed unit straight back', () => {
-    // Failing is not practising. The anchor does not move, so the unit stays at the front — which is
-    // where a word the learner just got wrong belongs. A design that reset the anchor on any
-    // retrieval would send it away for the full gap.
+  it('brings a failed unit back soon, and then lets it LEAVE', () => {
+    // ⚠️ THIS TEST INVERTED IN v3, DELIBERATELY, AND IT IS THE LEECH FIX.
+    //
+    // v2 asserted `daysWaiting: 20` here — the anchor was `lastProven`, and failing does not prove
+    // anything, so a word she never gets right accumulates wait forever and is pinned at the head of
+    // the queue. That reads as a virtue ("a word she just got wrong belongs at the front") and it is
+    // not: measured on a pool of 210 with ten always-failed words at 20 slots a day, those ten took
+    // **44% of every slot** over 60 days, against a 4.8% fair share. She spends her sessions on the
+    // handful of words that are not working and never sees the other two hundred.
+    //
+    // v3 anchors on `lastAsked`, which moves on every retrieval whatever the outcome. The failed
+    // word is still due immediately — it is below the known rung, so the gap does not apply to it —
+    // but its wait RESETS, so tomorrow it competes on equal terms instead of outranking everything.
     let p = proven([['x', 10]]);
-    p = record(p, [{ unit: U('x'), outcome: 'unknown', tested: true, day: D(30) }]);
-    const session = plan(p, { day: D(30), maxItems: 5 });
-    expect(words(session)).toEqual(['x']);
-    expect(session.items[0]?.daysWaiting).toBe(20);
+    p = record(p, [{ kind: 'retrieval', unit: U('x'), outcome: 'unknown', day: D(30) }]);
+
+    const sameDay = plan(p, { day: D(30), maxItems: 5, maxNew: 5 });
+    expect(words(sameDay)).toEqual(['x']);
+    // Asked today, so nothing is owed yet — where v2 reported 20 and climbing.
+    expect(sameDay.items[0]?.daysWaiting).toBe(0);
+    // `review`, not `relearn` — this word HAS been proven before, she just missed it today.
+    // `relearn` is reserved for a word asked at least once and never once right, which is a
+    // genuinely different situation: acquisition that has not landed, rather than a lapse.
+    expect(sameDay.items[0]?.why).toBe('review');
+
+    // And it comes back the next day, because acquisition is not gated by the review gap.
+    expect(words(plan(p, { day: D(31), maxItems: 5, maxNew: 5 }))).toEqual(['x']);
+  });
+
+  it('does not let a word she keeps failing monopolise the queue', () => {
+    // The same fix stated as an outcome rather than a mechanism, on the shape that actually bit:
+    // one broken word against a healthy pool. Under v2 the failing word's wait grew without bound
+    // and it took a slot every single day, forever.
+    const healthy: [string, number][] = Array.from({ length: 8 }, (_, i) => [`w${String(i)}`, 1]);
+    let p = proven([['bad', 1], ...healthy]);
+    let badSlots = 0;
+    let total = 0;
+
+    for (let d = 2; d <= 40; d++) {
+      const session = plan(p, { day: D(d), maxItems: 2, maxNew: 2 });
+      for (const item of session.items) {
+        total += 1;
+        if (item.unit === U('bad')) badSlots += 1;
+      }
+      p = record(
+        p,
+        session.items.map((item) => ({
+          kind: 'retrieval' as const,
+          unit: item.unit,
+          outcome: item.unit === U('bad') ? ('unknown' as const) : ('known' as const),
+          day: D(d),
+        })),
+      );
+    }
+
+    // Fair share of a nine-word pool is ~11%. v2 gave this word every slot it could take.
+    expect(badSlots / total, `${String(badSlots)}/${String(total)}`).toBeLessThan(0.25);
+    expect(badSlots).toBeGreaterThan(0);
   });
 
   // ── The spacing gap ───────────────────────────────────────────────────────────────────────────
   it('holds a recently proven unit back for the gap, inclusive at the edge', () => {
     const p = proven([['x', 10]]);
     const at = (day: number, gap?: number) =>
-      plan(p, { day: D(day), maxItems: 5, ...(gap === undefined ? {} : { reviewGapDays: gap }) })
-        .items.length;
+      plan(p, {
+        day: D(day),
+        maxItems: 5,
+        maxNew: 5,
+        ...(gap === undefined ? {} : { reviewGapDays: gap }),
+      }).items.length;
 
     expect(at(10)).toBe(0); // proven today
     expect(at(12)).toBe(0); // 2 days — still inside the default gap of 3
@@ -139,10 +195,11 @@ describe('plan', () => {
 
   it('defaults the gap rather than requiring one', () => {
     const p = proven([['x', 10]]);
-    const withDefault = plan(p, { day: D(10 + DEFAULT_REVIEW_GAP_DAYS), maxItems: 5 });
+    const withDefault = plan(p, { day: D(10 + DEFAULT_REVIEW_GAP_DAYS), maxItems: 5, maxNew: 5 });
     const explicit = plan(p, {
       day: D(10 + DEFAULT_REVIEW_GAP_DAYS),
       maxItems: 5,
+      maxNew: 5,
       reviewGapDays: DEFAULT_REVIEW_GAP_DAYS,
     });
     expect(withDefault).toEqual(explicit);
@@ -171,7 +228,7 @@ describe('plan', () => {
     // The premise, asserted so this test cannot pass because the orders happened to match.
     expect(Object.keys(p.units)).not.toEqual(Object.keys(loaded.value.units));
 
-    const opts = { day: D(30), maxItems: 2 } as const;
+    const opts = { day: D(30), maxItems: 2, maxNew: 2 } as const;
     expect(plan(p, opts)).toEqual(plan(loaded.value, opts));
   });
 
@@ -185,7 +242,7 @@ describe('plan', () => {
       ['mango', 5],
       ['kiwi', 5],
     ]);
-    expect(words(plan(p, { day: D(30), maxItems: 4 }))).toEqual([
+    expect(words(plan(p, { day: D(30), maxItems: 4, maxNew: 4 }))).toEqual([
       'apple',
       'kiwi',
       'mango',
@@ -198,7 +255,7 @@ describe('plan', () => {
       ['a', 1],
       ['b', 2],
     ]);
-    const opts = { day: D(30), maxItems: 2 } as const;
+    const opts = { day: D(30), maxItems: 2, maxNew: 2 } as const;
     expect(plan(p, opts)).toEqual(plan(p, opts));
   });
 
@@ -207,7 +264,7 @@ describe('plan', () => {
     // ⚠️ The engine cannot fetch content. If nobody tells the host how long a passage must be, it
     // supplies nine-word sentences forever and the 95–98% band is unsatisfiable by construction —
     // silently, because every short measurement comes back "too short to classify".
-    expect(plan(proven([]), { day: D(1), maxItems: 5 }).content.minPassageTokens).toBe(
+    expect(plan(proven([]), { day: D(1), maxItems: 5, maxNew: 5 }).content.minPassageTokens).toBe(
       COVERAGE_BAND.minTokens,
     );
   });
@@ -215,7 +272,7 @@ describe('plan', () => {
   it('names more units than the session uses', () => {
     // A host without an exercise for one word should lose that word, not shorten the session.
     const p = proven(Array.from({ length: 30 }, (_, i) => [`w${String(i)}`, 1] as const));
-    const session = plan(p, { day: D(30), maxItems: 4 });
+    const session = plan(p, { day: D(30), maxItems: 4, maxNew: 4 });
     expect(session.items).toHaveLength(4);
     expect(session.content.units).toHaveLength(4 * OVER_ASK);
     // …and the spares are the next-best ones, in the same order.
@@ -224,7 +281,7 @@ describe('plan', () => {
 
   // ── Degenerate inputs ─────────────────────────────────────────────────────────────────────────
   it('handles a learner who has met nothing', () => {
-    const session = plan(createProfile('ar', D(0)), { day: D(1), maxItems: 10 });
+    const session = plan(createProfile('ar', D(0)), { day: D(1), maxItems: 10, maxNew: 10 });
     expect(session.items).toEqual([]);
     expect(session.content.units).toEqual([]);
     // The content request still carries the floor — a beginner reads too.
@@ -232,7 +289,7 @@ describe('plan', () => {
   });
 
   it('handles nothing being due', () => {
-    expect(plan(proven([['x', 30]]), { day: D(30), maxItems: 10 }).items).toEqual([]);
+    expect(plan(proven([['x', 30]]), { day: D(30), maxItems: 10, maxNew: 10 }).items).toEqual([]);
   });
 
   it('clamps a nonsensical maxItems instead of throwing', () => {
@@ -244,7 +301,7 @@ describe('plan', () => {
       ['b', 1],
       ['c', 1],
     ]);
-    const at = (n: number) => plan(p, { day: D(30), maxItems: n }).items.length;
+    const at = (n: number) => plan(p, { day: D(30), maxItems: n, maxNew: n }).items.length;
     expect(at(0)).toBe(0);
     expect(at(-5)).toBe(0);
     expect(at(2.7)).toBe(2);
@@ -254,19 +311,28 @@ describe('plan', () => {
 
   it('clamps a nonsensical gap too', () => {
     const p = proven([['x', 10]]);
-    expect(plan(p, { day: D(11), maxItems: 5, reviewGapDays: -3 }).items).toHaveLength(1);
-    expect(plan(p, { day: D(11), maxItems: 5, reviewGapDays: Number.NaN }).items).toHaveLength(0);
+    expect(plan(p, { day: D(11), maxItems: 5, maxNew: 5, reviewGapDays: -3 }).items).toHaveLength(
+      1,
+    );
+    expect(
+      plan(p, { day: D(11), maxItems: 5, maxNew: 5, reviewGapDays: Number.NaN }).items,
+    ).toHaveLength(0);
   });
 
   it('survives a day behind the profile without inventing negative waits', () => {
     // A device clock that jumps backwards, or a host planning for a day it has already passed. A
     // negative wait would sort a unit as if it were fresher than one proven today.
-    const session = plan(proven([['x', 20]]), { day: D(5), maxItems: 5, reviewGapDays: 0 });
+    const session = plan(proven([['x', 20]]), {
+      day: D(5),
+      maxItems: 5,
+      maxNew: 5,
+      reviewGapDays: 0,
+    });
     expect(session.items[0]?.daysWaiting).toBe(0);
   });
 
   it('handles a very long absence without special-casing it', () => {
-    const session = plan(proven([['x', 1]]), { day: D(401), maxItems: 5 });
+    const session = plan(proven([['x', 1]]), { day: D(401), maxItems: 5, maxNew: 5 });
     expect(session.items[0]?.daysWaiting).toBe(400);
   });
 
@@ -274,12 +340,12 @@ describe('plan', () => {
     const other = variety('ar-levantine')!;
     let p = createProfile('ar', D(0));
     p = record(p, [
-      { unit: unitKey('recognise', V, 'سوق'), outcome: 'known', tested: true, day: D(1) },
-      { unit: unitKey('produce', V, 'سوق'), outcome: 'known', tested: true, day: D(1) },
-      { unit: unitKey('recognise', other, 'سوق'), outcome: 'known', tested: true, day: D(1) },
+      { kind: 'retrieval', unit: unitKey('recognise', V, 'سوق'), outcome: 'known', day: D(1) },
+      { kind: 'retrieval', unit: unitKey('produce', V, 'سوق'), outcome: 'known', day: D(1) },
+      { kind: 'retrieval', unit: unitKey('recognise', other, 'سوق'), outcome: 'known', day: D(1) },
     ]);
     // Three units for one word, and the scheduler treats them as three.
-    expect(plan(p, { day: D(30), maxItems: 10 }).items).toHaveLength(3);
+    expect(plan(p, { day: D(30), maxItems: 10, maxNew: 10 }).items).toHaveLength(3);
   });
 
   // ── The priority tiebreak ─────────────────────────────────────────────────────────────────────
@@ -295,7 +361,7 @@ describe('plan', () => {
     ]);
     // Commonest first — what a host would pass from its frequency-ordered pack.
     const priority = [U('mango'), U('zebra'), U('apple')];
-    expect(words(plan(p, { day: D(30), maxItems: 3, priority }))).toEqual([
+    expect(words(plan(p, { day: D(30), maxItems: 3, maxNew: 3, priority }))).toEqual([
       'mango',
       'zebra',
       'apple',
@@ -310,7 +376,10 @@ describe('plan', () => {
       ['stale', 1],
     ]);
     const priority = [U('fresh'), U('stale')];
-    expect(words(plan(p, { day: D(30), maxItems: 2, priority }))).toEqual(['stale', 'fresh']);
+    expect(words(plan(p, { day: D(30), maxItems: 2, maxNew: 2, priority }))).toEqual([
+      'stale',
+      'fresh',
+    ]);
   });
 
   it('sorts unlisted units after every listed one', () => {
@@ -320,7 +389,7 @@ describe('plan', () => {
       ['zzz', 5],
     ]);
     // Only `zzz` is named, so it leads and the rest fall back to the key order behind it.
-    expect(words(plan(p, { day: D(30), maxItems: 3, priority: [U('zzz')] }))).toEqual([
+    expect(words(plan(p, { day: D(30), maxItems: 3, maxNew: 3, priority: [U('zzz')] }))).toEqual([
       'zzz',
       'aaa',
       'bbb',
@@ -337,7 +406,7 @@ describe('plan', () => {
     const loaded = deserialize(serialize(p));
     expect(loaded.ok).toBe(true);
     if (!loaded.ok) return;
-    const opts = { day: D(30), maxItems: 3, priority: [U('mango'), U('kiwi')] } as const;
+    const opts = { day: D(30), maxItems: 3, maxNew: 3, priority: [U('mango'), U('kiwi')] } as const;
     expect(plan(p, opts)).toEqual(plan(loaded.value, opts));
   });
 
@@ -348,7 +417,9 @@ describe('plan', () => {
     ]);
     // First mention wins, matching how the pack's own frequency list resolves duplicates.
     expect(
-      words(plan(p, { day: D(30), maxItems: 2, priority: [U('bbb'), U('aaa'), U('bbb')] })),
+      words(
+        plan(p, { day: D(30), maxItems: 2, maxNew: 2, priority: [U('bbb'), U('aaa'), U('bbb')] }),
+      ),
     ).toEqual(['bbb', 'aaa']);
   });
 });

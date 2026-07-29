@@ -8,7 +8,8 @@ import type { Profile } from '../model/profile.js';
 import { DEFAULT_REVIEW_GAP_DAYS, plan } from './plan.js';
 import { deserialize, serialize } from './persist.js';
 import { advanceTo, createProfile } from './profile.js';
-import { PROMOTE_AFTER_SUCCESSES, record } from './record.js';
+import { record } from './record.js';
+import { isKnown, KNOWN_AT_STRENGTH } from '../model/unit.js';
 
 /**
  * Laws for {@link plan}.
@@ -26,24 +27,35 @@ const anyProfile = fc
       word: fc.string({ minLength: 1, maxLength: 6, unit: fc.constantFrom(...'abcdefgh') }),
       direction: fc.constantFrom('recognise' as const, 'produce' as const),
       day: fc.nat({ max: 60 }),
-      tested: fc.boolean(),
+      // ⚠️ All four kinds. Without `claim` here, NOTHING in this file would ever see a `'verify'`
+      // item, and every law below would be a law about three quarters of the scheduler.
+      kind: fc.constantFrom(
+        'retrieval' as const,
+        'exposure' as const,
+        'help' as const,
+        'claim' as const,
+      ),
       outcome: fc.constantFrom('known' as const, 'unknown' as const),
     }),
     { maxLength: 40 },
   )
   .map((rows): Profile => {
-    const evidence: Evidence[] = rows.map((r) => ({
-      unit: unitKey(r.direction, V, r.word),
-      outcome: r.outcome,
-      tested: r.tested,
-      day: D(r.day),
-    }));
+    const evidence: Evidence[] = rows.map((r) => {
+      const unit = unitKey(r.direction, V, r.word);
+      return r.kind === 'retrieval'
+        ? { kind: 'retrieval', unit, outcome: r.outcome, day: D(r.day) }
+        : { kind: r.kind, unit, day: D(r.day) };
+    });
     return record(createProfile('ar', D(0)), evidence);
   });
 
+// ⚠️ `maxNew` MUST be generated. It is a required option, so omitting it here would not merely
+// under-cover the budget — it would make every law below run at one arbitrary setting chosen by
+// whoever wrote the file, which is the definition of a vacuous sweep.
 const anyOptions = fc.record({
   day: fc.nat({ max: 400 }).map(D),
   maxItems: fc.nat({ max: 30 }),
+  maxNew: fc.nat({ max: 30 }),
   reviewGapDays: fc.nat({ max: 10 }),
 });
 
@@ -71,13 +83,12 @@ describe('plan laws', () => {
           expect(state, item.unit).toBeDefined();
           expect(item.daysWaiting).toBeGreaterThanOrEqual(0);
 
-          // And every item is genuinely due — but "due" has two arms, because `reviewGapDays` means
-          // the wait AFTER a proof. A unit that has never been proven has no proof to wait after,
-          // so it is due immediately and the gap does not apply to it. Stated as a disjunction
-          // rather than dropped: the gap must still bind everything it covers, or the law would
-          // pass for a scheduler that ignored spacing entirely.
-          const neverProven = state?.box === 'learning' && state.lastProven === 0;
-          if (!neverProven) {
+          // And every item is genuinely due — but "due" has two arms, because `reviewGapDays` is
+          // the wait a KNOWN unit serves between reviews. A unit below the known rung is still being
+          // acquired and may come back the next day. Stated as a disjunction rather than dropped:
+          // the gap must still bind everything it covers, or the law would pass for a scheduler
+          // that ignored spacing entirely.
+          if (state !== undefined && isKnown(state)) {
             expect(item.daysWaiting, item.unit).toBeGreaterThanOrEqual(options.reviewGapDays);
           }
         }
@@ -125,7 +136,12 @@ describe('plan laws', () => {
   it('is monotone in the day — waiting longer never removes work', () => {
     fc.assert(
       fc.property(anyProfile, fc.nat({ max: 200 }), fc.nat({ max: 50 }), (profile, day, extra) => {
-        const opts = { maxItems: 1000, reviewGapDays: DEFAULT_REVIEW_GAP_DAYS };
+        // ⚠️ `maxNew` is generated OFF the extremes on purpose. The cap is the one thing in v3 that
+        // could break this law — if a capped new item were dropped rather than deferred, more
+        // elapsed days could move units between buckets and SHRINK the session. The deferred pass
+        // is what keeps `items.length === min(maxItems, due)` at every setting, and this law is
+        // where that would show.
+        const opts = { maxItems: 1000, maxNew: 3, reviewGapDays: DEFAULT_REVIEW_GAP_DAYS };
         const today = plan(profile, { ...opts, day: D(day) }).items.length;
         const later = plan(profile, { ...opts, day: D(day + extra) }).items.length;
         // Nothing is recorded in between, so every unit's wait only grows.
@@ -157,8 +173,8 @@ describe('plan laws', () => {
             pool.push(unit);
             // Proven on day 1, so nothing starts artificially overdue.
             profile = record(profile, [
-              { unit, outcome: 'known', tested: true, day: D(1) },
-              { unit, outcome: 'known', tested: true, day: D(1) },
+              { kind: 'retrieval', unit, outcome: 'known', day: D(1) },
+              { kind: 'retrieval', unit, outcome: 'known', day: D(1) },
             ]);
           }
 
@@ -170,12 +186,14 @@ describe('plan laws', () => {
 
           for (let d = 2; d <= 1 + horizon; d++) {
             profile = advanceTo(profile, D(d));
-            const session = plan(profile, { day: D(d), maxItems: take });
+            // Everything in this pool has been proven, so nothing is `'new'` and the cap is inert
+            // here — set high deliberately, so a starvation failure can never be blamed on it.
+            const session = plan(profile, { day: D(d), maxItems: take, maxNew: take });
             const drills: Evidence[] = [];
             for (const item of session.items) {
               served.add(item.unit);
-              for (let i = 0; i < PROMOTE_AFTER_SUCCESSES; i++) {
-                drills.push({ unit: item.unit, outcome: 'known', tested: true, day: D(d) });
+              for (let i = 0; i < KNOWN_AT_STRENGTH; i++) {
+                drills.push({ kind: 'retrieval', unit: item.unit, outcome: 'known', day: D(d) });
               }
             }
             profile = record(profile, drills);
@@ -185,6 +203,90 @@ describe('plan laws', () => {
           expect(missed, `starved after ${String(horizon)} days`).toEqual([]);
         },
       ),
+    );
+  });
+
+  it('reserves maintenance at least the slots the cap held back', () => {
+    // ⚠️ THE EXACT GUARANTEE, arrived at only after fast-check refuted two weaker-looking
+    // statements of it. Both earlier attempts were the kind of law that reads true and is not:
+    //
+    //   "introduced <= maxNew"                — false. With nothing but new material due, the
+    //                                           deferred pass fills the session rather than
+    //                                           handing back an empty one.
+    //   "maintenance === min(maxItems, due)"  — false. New material legitimately outranks review
+    //                                           in the comparator, and the cap ENTITLES it to up
+    //                                           to `maxNew` slots.
+    //
+    // What is actually true is the anti-starvation property, and it is the one the measurement
+    // asked for: `maxItems - maxNew` slots are reserved for maintenance, and maintenance takes
+    // them whenever it has the work. That alone forbids the 0%-of-slots-forever failure.
+    fc.assert(
+      fc.property(anyProfile, anyOptions, (profile, options) => {
+        const session = plan(profile, options);
+        const maintenance = session.items.filter((i) => i.why !== 'new').length;
+        const everything = plan(profile, { ...options, maxItems: 10_000, maxNew: 10_000 }).items;
+        const maintenanceDue = everything.filter((i) => i.why !== 'new').length;
+
+        const reserved = options.maxItems - Math.min(options.maxNew, options.maxItems);
+        expect(maintenance).toBeGreaterThanOrEqual(Math.min(reserved, maintenanceDue));
+        // And it can never exceed what was actually available.
+        expect(maintenance).toBeLessThanOrEqual(Math.min(options.maxItems, maintenanceDue));
+      }),
+    );
+  });
+
+  it('goes over the cap only once maintenance has run out', () => {
+    // The other half. Exceeding `maxNew` is legitimate ONLY into slots nothing else could fill —
+    // if any maintenance work was left on the table, going over the cap is precisely the bug this
+    // option exists to prevent.
+    fc.assert(
+      fc.property(anyProfile, anyOptions, (profile, options) => {
+        const session = plan(profile, options);
+        const introduced = session.items.filter((i) => i.why === 'new').length;
+        if (introduced <= options.maxNew) return;
+        const everything = plan(profile, { ...options, maxItems: 10_000, maxNew: 10_000 }).items;
+        const maintenanceDue = everything.filter((i) => i.why !== 'new').length;
+        const maintenance = session.items.filter((i) => i.why !== 'new').length;
+        expect(maintenance).toBe(maintenanceDue);
+      }),
+    );
+  });
+
+  it('asks for the new material it could not supply, and never more than the cap', () => {
+    fc.assert(
+      fc.property(anyProfile, anyOptions, (profile, options) => {
+        const session = plan(profile, options);
+        const introduced = session.items.filter((i) => i.why === 'new').length;
+        const want = session.content.newUnitsWanted;
+        expect(want).toBeGreaterThanOrEqual(0);
+        // The engine asks for exactly the shortfall: what the cap allowed minus what the profile
+        // could fill. On a fresh profile that is the whole cap, which is the engine saying "I need
+        // vocabulary, not a scheduler" instead of returning an empty session with no explanation.
+        expect(want).toBe(Math.max(0, Math.min(options.maxNew, options.maxItems) - introduced));
+        // And it never asks for more than it could show.
+        expect(want).toBeLessThanOrEqual(options.maxItems);
+      }),
+    );
+  });
+
+  it('labels every item with a `why` that matches its state', () => {
+    fc.assert(
+      fc.property(anyProfile, anyOptions, (profile, options) => {
+        for (const item of plan(profile, options).items) {
+          const state = profile.units[item.unit];
+          expect(state).toBeDefined();
+          if (state === undefined) return;
+          const expected =
+            state.lastAsked === 0
+              ? state.prior.kind === 'claimed'
+                ? 'verify'
+                : 'new'
+              : state.lastProven === 0
+                ? 'relearn'
+                : 'review';
+          expect(item.why, item.unit).toBe(expected);
+        }
+      }),
     );
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "@luraty/engine",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Runtime-agnostic language-learning engine. No React, no React Native, no Expo, no database.",

@@ -94,6 +94,26 @@ export type Band = 'too-hard' | 'in-band' | 'too-easy';
 /**
  * How much of a text this learner knows.
  *
+ * ⚠️ **FOUR kinds. `'unverified'` is NOT a fourth way of failing to resolve.** `'no-words'` and
+ * `'too-short'` still mean "I cannot tell" and still carry no band at all. `'unverified'` means
+ * something sharper: **the verdict CHANGES depending on whether you believe an unchecked
+ * self-report**, so it carries BOTH readings and makes the caller pick which one to act on.
+ *
+ * It exists because of a measured gap. `coverage()` counts a unit known only once it has been
+ * proven, so a learner placed at 800 claimed words reads ~0% on every text until the app has
+ * actually drilled them — for months, on the learner whose defining trait is already knowing a lot.
+ * Counting claims silently instead would compute the band on self-report, which correlates only
+ * about **r ≈ .39** with tested proficiency. Neither is honest, so the disagreement is surfaced.
+ *
+ * The trigger needs no new constant and no threshold to tune. `coverage()` classifies twice —
+ * strictly (only proven counts) and generously (a standing claim counts too) — and returns
+ * `'measured'` when the two AGREE. "The answer changes" is the only non-arbitrary definition of
+ * "I cannot tell" available here. It also self-extinguishes: every verification moves a token from
+ * claimed to known, so the category drains to `'measured'` with nobody adjusting anything.
+ *
+ * Consequently `'measured'` now means something STRONGER than it did in v2: this verdict is robust
+ * to whether you trust her.
+ *
  * ⚠️ **`band` exists only on `'measured'`, and that is the load-bearing shape decision here.**
  *
  * The tempting alternative is one flat object with a four-valued band including something like
@@ -144,6 +164,8 @@ export type Coverage =
       readonly runningTokens: number;
       readonly knownTokens: number;
       readonly unknownTokens: number;
+      /** Running tokens counted unknown that rest on a standing claim. See {@link Coverage}. */
+      readonly claimedTokens: number;
       readonly unkeyableTokens: number;
       /** Tokens the caller marked as not-vocabulary. See {@link CoverageQuery.ignore}. */
       readonly ignoredTokens: number;
@@ -165,8 +187,16 @@ export type Coverage =
        * afterwards.
        */
       readonly runningTokens: number;
+      /** Proven knowledge only — `strength >= KNOWN_AT_STRENGTH`. Never includes a bare claim. */
       readonly knownTokens: number;
       readonly unknownTokens: number;
+      /**
+       * Running tokens resting on a standing claim.
+       *
+       * ⚠️ MAY BE `> 0` on this variant, and that is not a contradiction: this kind means the band
+       * comes out the same either way, which is the honest "it does not matter here" answer.
+       */
+      readonly claimedTokens: number;
       /**
        * Tokens dropped because `key()` returned the empty string.
        * `runningTokens + unkeyableTokens + ignoredTokens === pack.split(text).length`.
@@ -202,6 +232,41 @@ export type Coverage =
        */
       readonly unknownLemmas: readonly Lemma[];
       readonly band: Band;
+    }
+  | {
+      /**
+       * The verdict depends on whether you believe an unchecked claim. See {@link Coverage}.
+       *
+       * Both readings are carried and neither is privileged, because the engine genuinely does not
+       * know which is right — that is what a placement is for, and this variant is how the engine
+       * asks for one.
+       */
+      readonly kind: 'unverified';
+      readonly runningTokens: number;
+      /** Proven only. The strict reading's numerator. */
+      readonly knownTokens: number;
+      readonly unknownTokens: number;
+      /** Always `> 0` here, and always enough to flip the verdict — or this variant is not returned. */
+      readonly claimedTokens: number;
+      readonly unkeyableTokens: number;
+      readonly ignoredTokens: number;
+      /** Unknown under the STRICT reading, so claimed lemmas appear here too. */
+      readonly unknownLemmas: readonly Lemma[];
+      /** Counting only what she has proven. */
+      readonly strict: Band;
+      /** Counting standing claims as known. Always `!== strict`. */
+      readonly withClaims: Band;
+      /**
+       * Distinct claimed-but-unchecked lemmas in this text, first-appearance order.
+       *
+       * ⚠️ Feed these — through `key()` and `unitKey()` — straight into {@link PlanOptions.priority}.
+       * Coverage's own uncertainty becomes tomorrow's drill list: the words she is about to read that
+       * nobody has checked are exactly the words worth checking, and the loop closes with no new
+       * machinery anywhere.
+       *
+       * A TYPE count like `unknownLemmas`, and never a numerator.
+       */
+      readonly claimedLemmas: readonly Lemma[];
     };
 
 /**

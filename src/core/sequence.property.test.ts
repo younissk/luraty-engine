@@ -8,6 +8,7 @@ import type { Profile } from '../model/profile.js';
 import { deserialize, serialize } from './persist.js';
 import { advanceTo, createProfile } from './profile.js';
 import { record } from './record.js';
+import { arbEvidence as anyEvidence } from '../testing/evidence.js';
 
 /**
  * Laws about SEQUENCES, which is the class no single-function test can express.
@@ -35,27 +36,17 @@ type Op =
   /** Save and reload mid-run. Asserts persistence is TRANSPARENT, not merely reversible. */
   | { readonly kind: 'restart' };
 
-const arbUnit: fc.Arbitrary<UnitKey> = fc
-  .tuple(
-    fc.constantFrom('recognise' as const, 'produce' as const),
-    fc.constantFrom(AR, LEV),
-    fc.constantFrom(...WORDS),
-  )
-  .map(([dir, v, word]) => unitKey(dir, v, word));
-
 const arbOp: fc.Arbitrary<Op> = fc.oneof(
   {
     weight: 6,
     arbitrary: fc.record({
       kind: fc.constant('record' as const),
-      evidence: fc.record({
-        unit: arbUnit,
-        outcome: fc.constantFrom('known' as const, 'unknown' as const),
-        tested: fc.boolean(),
-        // Deliberately unordered. A host syncing an offline queue replays evidence out of order, and
-        // that is exactly where time went backwards before.
-        day: fc.integer({ min: 0, max: 200 }).map((n) => n as Day),
-      }),
+      // Deliberately unordered days. A host syncing an offline queue replays evidence out of order,
+      // and that is exactly where time went backwards before.
+      evidence: fc.oneof(
+        anyEvidence({ variety: AR, words: WORDS, maxDay: 200 }),
+        anyEvidence({ variety: LEV, words: WORDS, maxDay: 200 }),
+      ),
     }),
   },
   {
@@ -93,6 +84,7 @@ describe('sequences', () => {
         let profile = createProfile('ar', 0 as Day);
         const lastSeen = new Map<string, number>();
         const confirmed = new Map<string, number>();
+        const asked = new Map<string, number>();
         const seen = new Map<string, number>();
 
         for (const [i, op] of ops.entries()) {
@@ -111,14 +103,22 @@ describe('sequences', () => {
             );
             lastSeen.set(key, state.lastSeen);
 
-            if (state.box === 'understood') {
-              const prevConfirmed = confirmed.get(key) ?? 0;
-              expect(
-                state.confirmedOn,
-                `${where}: confirmedOn went backwards`,
-              ).toBeGreaterThanOrEqual(prevConfirmed);
-              confirmed.set(key, state.confirmedOn);
-            }
+            // ⚠️ CHECKED UNCONDITIONALLY NOW. v2 could only assert this on the `understood` arm,
+            // because `confirmedOn` did not exist on the other one — so a proven-then-demoted unit's
+            // anchor was unwatched for exactly the stretch where rewinding it would matter most.
+            // The flat shape means every unit carries the anchor at all times, so every unit is
+            // checked at every step.
+            const prevProven = confirmed.get(key) ?? 0;
+            expect(state.lastProven, `${where}: lastProven went backwards`).toBeGreaterThanOrEqual(
+              prevProven,
+            );
+            confirmed.set(key, state.lastProven);
+
+            const prevAsked = asked.get(key) ?? 0;
+            expect(state.lastAsked, `${where}: lastAsked went backwards`).toBeGreaterThanOrEqual(
+              prevAsked,
+            );
+            asked.set(key, state.lastAsked);
           }
         }
       }),
@@ -164,12 +164,10 @@ describe('sequences', () => {
     fc.assert(
       fc.property(
         fc.array(
-          fc.record({
-            unit: arbUnit,
-            outcome: fc.constantFrom('known' as const, 'unknown' as const),
-            tested: fc.boolean(),
-            day: fc.integer({ min: 0, max: 200 }).map((n) => n as Day),
-          }),
+          fc.oneof(
+            anyEvidence({ variety: AR, words: WORDS, maxDay: 200 }),
+            anyEvidence({ variety: LEV, words: WORDS, maxDay: 200 }),
+          ),
           { maxLength: 30 },
         ),
         (evidence) => {
@@ -177,14 +175,52 @@ describe('sequences', () => {
           const forwards = record(createProfile('ar', 0 as Day), byDay);
           const backwards = record(createProfile('ar', 0 as Day), [...byDay].reverse());
 
-          // Timestamps must agree exactly — they are monotonic by construction.
+          // ⚠️ EVERY MAX-FOLD AND EVERY COUNTER, not just two of them.
+          //
+          // Before v3 this law checked `lastSeen` and `seen` alone. That was adequate when the only
+          // other state was a box and a streak; it stopped being adequate the moment `coverage()`
+          // began reading a rung, because a saturating ladder is exactly the kind of thing that
+          // could quietly become order-dependent in a way nothing asserted. Widened deliberately.
           for (const [key, state] of Object.entries(forwards.units)) {
             const other = backwards.units[key as UnitKey];
-            expect(other?.lastSeen, `lastSeen for ${key}`).toBe(state.lastSeen);
             expect(other?.seen, `seen for ${key}`).toBe(state.seen);
+            expect(other?.lastSeen, `lastSeen for ${key}`).toBe(state.lastSeen);
+            expect(other?.lastAsked, `lastAsked for ${key}`).toBe(state.lastAsked);
+            expect(other?.lastProven, `lastProven for ${key}`).toBe(state.lastProven);
+            expect(other?.prior, `prior for ${key}`).toEqual(state.prior);
           }
         },
       ),
     );
+  });
+
+  it('is order-dependent in the ledger, and ONLY in the ledger', () => {
+    // ⚠️ THIS LAW EXISTS TO STATE A LIMITATION HONESTLY, not to prove something works.
+    //
+    // A saturating walk does not commute: from rung 0, a miss then a hit ends at 1, while a hit then
+    // a miss ends at 0. So `strength` and `lapses` genuinely depend on delivery order, and no
+    // amount of care in `record` changes that. This is not new — v2's `streak` and `box` were
+    // order-dependent in exactly the same way — but it became LOAD-BEARING when `coverage()` started
+    // reading the rung.
+    //
+    // The commuting alternative was considered and rejected: storing `proved` and `failed` counts
+    // and deriving a rung from the ratio commutes perfectly and can never forget, so a word proven
+    // 400 times and now failing half the time would read at the ceiling for months.
+    //
+    // Two things follow, and both are stated in `record`'s contract and in the client guide: a host
+    // draining an offline queue should sort by day first, and the repair path is a re-fold from the
+    // evidence log — which is why keeping that log is a host obligation rather than a nicety.
+    const unit = unitKey('recognise', AR, 'سوق');
+    const hit = { kind: 'retrieval' as const, unit, outcome: 'known' as const, day: 1 as Day };
+    const miss = { kind: 'retrieval' as const, unit, outcome: 'unknown' as const, day: 1 as Day };
+
+    const missFirst = record(createProfile('ar', 0 as Day), [miss, hit]);
+    const hitFirst = record(createProfile('ar', 0 as Day), [hit, miss]);
+
+    expect(missFirst.units[unit]?.strength).toBe(1);
+    expect(hitFirst.units[unit]?.strength).toBe(0);
+    // The dates, which is what the law above covers, agree exactly either way.
+    expect(missFirst.units[unit]?.lastAsked).toBe(hitFirst.units[unit]?.lastAsked);
+    expect(missFirst.units[unit]?.lastProven).toBe(hitFirst.units[unit]?.lastProven);
   });
 });

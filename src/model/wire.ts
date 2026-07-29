@@ -19,7 +19,7 @@
  * Not the same as the package version — the API can change many times without the stored bytes
  * changing at all, and vice versa.
  */
-export const PROFILE_SCHEMA_VERSION = 2;
+export const PROFILE_SCHEMA_VERSION = 3;
 
 /**
  * A unit's state, as stored by schema v1. **Frozen.**
@@ -46,11 +46,13 @@ export type WireUnitV1 =
     };
 
 /**
- * A unit's state, as stored by schema v2.
+ * A unit's state, as stored by schema v2. **Frozen**, for the same reason {@link WireUnitV1} is:
+ * nothing in `src/` reads it, and it is the only description of the bytes `MIGRATIONS[2]` operates
+ * on. Deleting it because the compiler sees no reference deletes the map to the territory.
  *
- * The only change from v1 is `lastProven` on the learning variant — the day a unit was last
- * successfully retrieved, which the scheduler needs and `lastSeen` cannot supply because passive
- * exposure refreshes it. See {@link Learning.lastProven}.
+ * The only change from v1 was `lastProven` on the learning variant — the day a unit was last
+ * successfully retrieved, which the scheduler needed and `lastSeen` could not supply because passive
+ * exposure refreshes it.
  */
 export type WireUnitV2 =
   | {
@@ -106,8 +108,47 @@ export type WireProfileV2 = {
   readonly units: readonly WireEntryV2[];
 };
 
+/**
+ * A unit's state, as stored by schema v3. **FLAT** — the box is gone, derived from `strength`.
+ *
+ * ⚠️ **The KEY format is untouched**, and that is the cash value of declining to put modality in the
+ * unit key. `parseUnitKey` and `isDirection` are unchanged, so every stored `recognise:…` and
+ * `produce:…` key still decodes and the v1 and v2 goldens need no rekeying. A migration that had to
+ * rewrite keys would be rewriting somebody's past, which `ids.ts` names as the one shape that is
+ * genuinely hard to change later.
+ *
+ * `prior` is `number | null` rather than a nested object — `null` for no claim, a whole day number
+ * for a claim made on that day. Compact, and it parses back to {@link Prior} with no ambiguity;
+ * anything else is `malformed`.
+ *
+ * Measured cost: a v2 learning unit is 63 bytes and its v3 form is 88, so an 800-unit profile goes
+ * from roughly 66KB to 92KB. That is the price of three anchors plus a ledger, and it is paid on the
+ * app-launch parse path — worth re-measuring if launch time regresses.
+ */
+export type WireUnitV3 = {
+  readonly seen: number;
+  readonly lastSeen: number;
+  readonly lastAsked: number;
+  readonly lastProven: number;
+  /** `null` for no claim; the day it was made otherwise. See {@link Prior}. */
+  readonly prior: number | null;
+  readonly strength: number;
+  readonly lapses: number;
+};
+
+/** Still an ARRAY pair, still sorted. The integer-key-hoisting reasoning on {@link WireEntryV2} is unchanged. */
+export type WireEntryV3 = readonly [key: string, unit: WireUnitV3];
+
+export type WireProfileV3 = {
+  readonly v: 3;
+  readonly language: string;
+  readonly day: number;
+  /** Sorted by key, always. See {@link WireEntryV2}. */
+  readonly units: readonly WireEntryV3[];
+};
+
 /** The current wire shape. Point this at the newest version; leave the older ones untouched. */
-export type WireProfile = WireProfileV2;
+export type WireProfile = WireProfileV3;
 
 /**
  * Why decoding returns a value instead of throwing.

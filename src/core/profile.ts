@@ -1,6 +1,6 @@
 import type { Day, UnitKey } from '../model/ids.js';
 import type { Profile } from '../model/profile.js';
-import type { UnitState } from '../model/unit.js';
+import { UNMET, type UnitState } from '../model/unit.js';
 
 /**
  * Creating and moving a profile through time.
@@ -36,20 +36,16 @@ export function advanceTo(profile: Profile, day: Day): Profile {
  * rather than a nuisance. This function owns the ergonomics tax once, so `?? somethingDefault` does
  * not get scattered across every call site with a slightly different default each time.
  *
- * An unmet unit reads as `learning` with zero encounters: the engine's honest default is that you
- * do not know a word until something says otherwise.
+ * An unmet unit reads as {@link UNMET}: every counter zero, every date zero, no claim. The engine's
+ * honest default is that you do not know a word until something says otherwise — and that never
+ * having met a word is not a claim about it.
+ *
+ * ⚠️ `lastSeen` defaults to `0`, not `profile.day`. v2 returned today, which asserted a sighting
+ * that never happened; `plan()` never read it and `coverage()` never read it, so nothing depended on
+ * the lie, but `summarize()` would have. Corrected while the wire was open.
  */
 export function unitState(profile: Profile, key: UnitKey): UnitState {
-  return (
-    profile.units[key] ?? {
-      box: 'learning',
-      seen: 0,
-      lastSeen: profile.day,
-      streak: 0,
-      // Never proven, which is the honest reading of a unit nobody has ever met.
-      lastProven: 0 as Day,
-    }
-  );
+  return profile.units[key] ?? UNMET;
 }
 
 /** Whether the learner has ever met this unit. Distinct from "knows it". */
