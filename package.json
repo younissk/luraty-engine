@@ -40,7 +40,8 @@
     "mutate": "stryker run",
     "coverage": "vitest run --coverage",
     "test:hermes": "node scripts/hermes.mjs",
-    "demo": "node scripts/demo.mjs"
+    "demo": "node scripts/demo.mjs",
+    "bench": "node scripts/bench.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",

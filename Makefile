@@ -66,6 +66,22 @@ hermes-install: ## Download the Hermes VM (v0.13.0, ~10MB) into .hermes/. Gitign
 	@rm -f $(HERMES_DIR)/hermes-cli-darwin.tar.gz
 	@echo "Installed. Run 'make hermes'."
 
+.PHONY: bench
+bench: ## How fast is it, on the runtime that ships? Node + Hermes, projected onto a phone.
+	@# NOT a gate — a wall-clock assertion fails on a busy laptop. This produces numbers; you read
+	@# them. Pass --pack, or every pack number is measured against a 200-word fixture and flatters.
+	npm run bench -- --pack ../packs/de
+
+.PHONY: bench-quick
+bench-quick: ## The same, in seconds rather than minutes. Two profile sizes, three samples.
+	npm run bench -- --pack ../packs/de --quick
+
+.PHONY: stress
+stress: ## What it CANNOT take: 250k-unit profiles, 1MB texts, adversarial input, each isolated.
+	@# Every scenario runs in its own process, so an out-of-memory names one limit instead of
+	@# killing the sweep. Minutes.
+	npm run bench -- --pack ../packs/de --stress
+
 .PHONY: mutate
 mutate: ## Mutation audit — does the suite actually pin anything? Minutes, not seconds.
 	@# Deliberately NOT part of 'check', and with no score threshold: a hard number is one that

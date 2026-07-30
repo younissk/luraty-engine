@@ -79,6 +79,13 @@ npm run check:publish # build + publint; the published shape, not the daily loop
 npm script — the scripts stay authoritative, the `Makefile` is the map. `make verify` is the gate
 plus the cross-runtime lane.
 
+⚠️ **`make bench` / `make stress` are NOT on the gate and must not join it.** A wall-clock assertion
+fails on a busy laptop and passes on a quiet one, and a lane that cries wolf gets skipped within a
+week. They produce numbers; a human reads them. `npm run bench -- --compare <report.json>` is how
+regression gets asked as a question. See [docs/guides/benchmarking.md](docs/guides/benchmarking.md)
+— including the device multiplier, which is an ESTIMATE until somebody runs the bundled calibration
+kernel on a real phone and passes `--baseline`.
+
 Hooks are **husky** (`.husky/pre-commit`, `.husky/commit-msg`), installed automatically by
 `npm install`. Pre-commit runs `lint-staged` (prettier + eslint --fix on staged files only) then
 typecheck and test whole — those two cannot be narrowed to staged files, since `tsc` checks the
