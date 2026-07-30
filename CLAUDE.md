@@ -234,9 +234,35 @@ npm run mutate     # minutes, not seconds — an audit, never a gate
 Deliberately **not** in `npm run check`, and with no score threshold: a hard number is one that
 eventually gets lowered so a commit can land. Read the survivors, fix what matters, move on.
 
-Score today **86.54%** (1,012 of 1,174), measured on wire v3 — `unit.ts` 100, `coverage.ts` 97,
-`ids.ts` 95, `plan.ts` 93, `summary.ts` 91, `profile.ts` 91, `record.ts` 89 (96 of what is covered),
-`text.ts` 86, `persist.ts` 83, `checkPack.ts` 79, `pack.ts` 77, `assert.ts` 0.
+Score **85.15%** (1,158 of 1,360), measured 2026-07-30 on wire v4 after the hot-path work —
+`unit.ts` 100, `learner.ts` 97, `coverage.ts` 97, `ids.ts` 95, `plan.ts` 92, `bulk.ts` 91,
+`profile.ts` 91, `summary.ts` 90, `record.ts` 89, `text.ts` 84, `persist.ts` 83, `checkPack.ts` 79,
+`pack.ts` 71, `assert.ts` 0.
+
+⚠️ **`text.ts` has since moved to 88.17%** on a scoped re-run (`npx stryker run --mutate
+src/internal/text.ts`, two minutes rather than fifteen), which puts the overall at a **derived
+85.66%** — 1,165 of 1,360. Derived, not measured: the next full run is what makes it a fact.
+
+⚠️ **The score FELL from 86.54% (wire v3), and the two files that fell are the two the optimisation
+touched** — `text.ts` 86 → 84 and `pack.ts` 77 → 71. That is the lane doing its job: a rewrite adds
+branches, and branches nothing pins are a score going down while every test stays green. Reading the
+`text.ts` survivors was worth the fifteen minutes twice over:
+
+- **Most were genuinely equivalent, and for a reason worth knowing.** `transform`'s whole
+  optimisation is that an unchanged string is returned by IDENTITY rather than rebuilt — and
+  identity is invisible to `toBe` on a string. So `changed = false → true`, and the early
+  `return s` becoming `if (false)`, both survive forever and correctly: they change the allocation,
+  not the value. Do not "fix" them.
+- **Two were real, and both sat on claims the source spells out.** `foldGermanUmlauts` had **no
+  direct tests at all** — the fold whose docstring carries six German word pairs it exists to keep
+  apart (schön/schon, zählen/zahlen, …) was pinned only indirectly through the pack fixture, and
+  `GERMAN_FOLD`'s capitals carried the comment "so the step does not silently depend on `lowercase`
+  running first" while `Ä: 'ae' → Ä: ''` survived a full run. `text.test.ts` now pins both.
+  **A sentence in a docstring is not a test, and the mutation lane is the only thing that says so.**
+
+**`pack.ts` at 71% is now the weakest file in the package**, with 65 survivors and 9 uncovered
+mutants — the compound splitter and the affix guards are the thin part. Untouched debt rather than
+new: it was the weakest before this too.
 
 `plan.ts` is the file worth reading twice. v3 roughly tripled it and its FIRST reading was **80.5%**
 with 30 survivors, down from 88 — the new code (the deferred pass, the claim anchor, the two
