@@ -119,20 +119,42 @@ and bought 38%.
 ⚠️ `record` was **not** touched, so read its −16% row as measurement noise rather than as a result.
 Reporting it as a win would be the benchmark flattering the work that produced it.
 
+## Wire v4: the field names were 60% of the file (ADR-0007)
+
+Landed 2026-07-30, after the three changes above and measured separately from them.
+
+Each unit used to store its seven field names — 73 bytes of the same seven strings, once for every
+word a learner has ever met:
+
+```
+v3   ["recognise:de:haus",{"seen":2,"lastSeen":880,"lastAsked":880,"lastProven":878,
+                           "prior":null,"strength":2,"lapses":0}]
+v4   ["recognise:de:haus",2,880,880,878,null,2,0]
+```
+
+| 20,000 units  | before  | after       |          |
+| ------------- | ------- | ----------- | -------- |
+| blob size     | 2.44 MB | **1002 KB** | **-59%** |
+| `serialize`   | 57 ms   | **41 ms**   | -28%     |
+| `deserialize` | 48 ms   | **44 ms**   | -8%      |
+
+At 60,000 units: **7.3 MB to 3.1 MB**, `serialize` 176 to 143 ms, `deserialize` 146 to 128 ms.
+
+⚠️ **The bytes fell 59% and the times did not, and the gap is the interesting part.** Two measured
+reasons, both worth knowing before optimising this further:
+
+- **Sorting the keys is most of `serialize` on Hermes** — 26.5 ms of the 57, measured directly. That
+  is O(n log n) string comparison and the tuple change does not touch it. Canonical ordering is what
+  makes a profile safe to hash, diff and pin in a golden, so the sort is not going anywhere.
+- **`deserialize` is dominated by building 20,000 objects and validating 20,000 unit keys**, not by
+  `JSON.parse`. Shrinking the input helped less than the byte count suggests it would.
+
+The size number is the one that matters most anyway: it is what a phone writes to flash on every
+save, and a flash write is not on this chart.
+
 ## What is still on the table
 
-Ranked by measured win over cost. None is a bug; all three are decisions.
-
-**A. A tuple wire format — measured 60% smaller.** Every unit currently serializes its seven field
-NAMES, 73 bytes of pure repetition per unit: 2,438,933 bytes for 20,000 units, of which the values
-are 978,933. A positional row is a straight **2.44 MB → 0.98 MB**, and since both `JSON.stringify`
-and `JSON.parse` cost scales with output size, `serialize` and `deserialize` should follow it down.
-This is the single largest remaining win and it sits on the sharpest path. It needs wire v4, a v3→v4
-migration, a new golden and an ADR — the argument against is that a positional row is not readable
-by eye and a field-order mistake shifts every value silently, which parse-side validation and a
-frozen golden are the answer to. Pre-live, so it costs nothing but the work.
-
-**B. `plan` by bounded selection instead of a full sort.** It sorts ~19,400 items to consume at most 60. Partitioning `new` from the rest during the scan already there, keeping the top 30 and top 60 by
+**`plan` by bounded selection instead of a full sort.** It sorts ~19,400 items to consume at most 60. Partitioning `new` from the rest during the scan already there, keeping the top 30 and top 60 by
 a size-K heap, and merging, is provably sufficient — `take` consumes at most `maxItems` and
 `nameWithSpares` names at most `maxItems * OVER_ASK` with new capped at `maxNew * OVER_ASK` — and
 turns O(n log n) into O(n log 60). The scan itself is irreducible, so expect roughly half of what is
@@ -140,19 +162,36 @@ left. It needs a **differential property test**: keep today's implementation in 
 assert the two produce identical sessions over random profiles. That is the right proof and it is
 cheap.
 
-**C. `Profile.units` as a `Map`.** One change would do two things — remove the 196,607-property
-Hermes ceiling, and possibly make `record`'s clone cheaper. **Measure before committing**: it is a
-public type change touching every consumer, and the payoff on the clone is unverified. It does not
-change the asymptotics; `record` stays O(pool) per call either way.
+**`serialize`'s key sort**, now that it is known to be most of what remains. The keys were already
+sorted in the previous blob and a profile changes by a handful of units per session, so an
+incremental encoder is conceivable — but `serialize` is pure and takes only a `Profile`, and giving
+it a cache would be hidden state in the one package that has none. It would have to be a new
+function taking the previous blob explicitly, which is an API decision rather than an optimisation.
 
 **And one that costs nothing at all: the host should batch.** `record`'s copy is per CALL, so
-folding a whole session in one call collapses twenty copies into one — measured **8× cheaper** at
+folding a whole session in one call collapses twenty copies into one — measured **8x cheaper** at
 20,000 units. Saving on a cadence rather than per answer does the same for `serialize`. Neither is
 an engine change.
 
-**Rejected: shipping pre-normalized pack data** so `createPack` can skip the work. It would move
-normalization out of the engine and into each pack's build script, which is exactly how `läuft` and
-`laufen` became two unit keys once already. Correctness beats 150 ms at launch.
+## Rejected, on measurement
+
+**`Profile.units` as a `Map` — the most instructive result of the day.** It would lift the
+196,607-property ceiling and, on Node, is 34–98% faster at everything the engine does. **On Hermes
+it is 7–133% slower.**
+
+| 20,000 units              | object  | Map     |                     |
+| ------------------------- | ------- | ------- | ------------------- |
+| clone + set (`record`)    | 6.38 ms | 6.50 ms | same                |
+| iterate (`plan`)          | 1.11 ms | 2.28 ms | **Map 106% slower** |
+| keys + sort (`serialize`) | 26.5 ms | 29.0 ms | Map 9% slower       |
+
+Benchmarked on Node alone this reads as an obvious large win, and shipping it would have been a
+regression on the only runtime that ships. The 120,000-unit figures and the full argument are in
+[ADR-0007](../../../docs/adr/0007-the-profile-is-stored-as-positional-rows-and-stays-a-plain-object-in-memory.md).
+
+**Shipping pre-normalized pack data** so `createPack` can skip the work. It would move normalization
+out of the engine and into each pack build script, which is exactly how `läuft` and `laufen` became
+two unit keys once already. Correctness beats 150 ms at launch.
 
 ## The stress lane
 

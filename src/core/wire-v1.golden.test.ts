@@ -50,9 +50,8 @@ const FROZEN_V2 =
   ']}';
 
 /**
- * ⚠️ FROZEN. The same learner as v3 writes them. Same rule as its two predecessors: a deliberate
- * diff here is a schema change — bump the version, write the migration, keep this string as its
- * input.
+ * ⚠️ FROZEN. Real v3 output, captured 2026-07-30 before the v4 change. Never regenerate — it is now
+ * the input fixture for the v3→v4 migration, exactly as v1 became v2's and v2 became v3's.
  *
  * Read against `FROZEN_V2`, this string IS the v3 change: the box is gone, `streak` became
  * `strength` on a bounded ladder, one anchor became three, and every unit carries a `prior` and a
@@ -64,6 +63,26 @@ const FROZEN_V3 =
   '["recognise:ar-msa:سوق",{"seen":2,"lastSeen":5,"lastAsked":5,"lastProven":5,"prior":null,"strength":2,"lapses":0}],' +
   '["recognise:ar-msa:كتاب",{"seen":1,"lastSeen":9,"lastAsked":0,"lastProven":0,"prior":null,"strength":0,"lapses":0}],' +
   '["recognise:fr:automne",{"seen":1,"lastSeen":12,"lastAsked":12,"lastProven":12,"prior":null,"strength":1,"lapses":0}]' +
+  ']}';
+
+/**
+ * ⚠️ FROZEN. The same learner as v4 writes them. Same rule as its three predecessors.
+ *
+ * Read against `FROZEN_V3`, this string IS the v4 change, and it is the whole argument for it:
+ * **the values are identical and the file is less than half the size.** Every one of those seven
+ * field names appeared once per unit, for every word a learner has ever met.
+ *
+ * ⚠️ This golden now does a second job the earlier ones did not. Under v3 a field name announced its
+ * own position; under v4 the order IS the format, so this string is the executable specification of
+ * it. A field inserted, reordered or dropped shows up here as a diff a human has to approve — which
+ * is the answer to the obvious objection that a positional row is easy to get silently wrong.
+ */
+const FROZEN_V4 =
+  '{"v":4,"language":"ar","day":42,"units":[' +
+  '["produce:ar-msa:سوق",1,5,5,0,null,0,1],' +
+  '["recognise:ar-msa:سوق",2,5,5,5,null,2,0],' +
+  '["recognise:ar-msa:كتاب",1,9,0,0,null,0,0],' +
+  '["recognise:fr:automne",1,12,12,12,null,1,0]' +
   ']}';
 
 const AR = variety('ar-msa');
@@ -84,16 +103,28 @@ function goldenProfile() {
 }
 
 describe('wire format', () => {
-  it('serializes byte-for-byte as v3 was frozen', () => {
+  it('serializes byte-for-byte as v4 was frozen', () => {
     // A behaviour golden, not a unit test. Every example test in this package is written in terms
     // of the rules, so a change to a rule changes the tests with it and everything stays green.
     // This string cannot rationalise: it is what the engine produced on a specific day, and a diff
     // against it is a human decision about whether the change was intended.
-    expect(serialize(goldenProfile())).toBe(FROZEN_V3);
+    expect(serialize(goldenProfile())).toBe(FROZEN_V4);
   });
 
   it('is the version this test claims it is', () => {
-    expect(PROFILE_SCHEMA_VERSION).toBe(3);
+    expect(PROFILE_SCHEMA_VERSION).toBe(4);
+  });
+
+  it('is less than half the size v3 was, for the same learner', () => {
+    // ⚠️ THE POINT OF v4, ASSERTED RATHER THAN CLAIMED IN A COMMENT. The two strings above hold the
+    // identical values, so the whole difference is field names — 73 bytes per unit, repeated once
+    // for every word a learner has ever met. Measured on a real 20,000-unit profile it was 60% of
+    // the file; on this four-unit fixture the ratio is smaller only because the keys are long.
+    //
+    // A range rather than an exact number: this pins the ORDER OF MAGNITUDE of the win so that a
+    // future change quietly reintroducing per-unit names fails here, without making the test a
+    // second copy of the goldens that has to be edited whenever they legitimately move.
+    expect(FROZEN_V4.length).toBeLessThan(FROZEN_V3.length * 0.55);
   });
 });
 
@@ -158,20 +189,24 @@ describe('the migration chain', () => {
     expect(souq.strength).toBe(KNOWN_AT_STRENGTH);
   });
 
-  it('upgrades a v1 blob to bytes identical to native v2 output', () => {
-    // The migration's real contract: after loading, a v1 learner is indistinguishable from a v2 one.
-    // If this drifts, two learners with the same history serialize differently depending only on
-    // which version of the app first wrote their profile.
+  it('upgrades a v1 blob to a well-formed current profile that round-trips', () => {
+    // The migration's real contract: after loading, a v1 learner is indistinguishable from a native
+    // one. If this drifts, two learners with the same history serialize differently depending only
+    // on which version of the app first wrote their profile.
     const loaded = deserialize(FROZEN_V1);
     expect(loaded.ok).toBe(true);
     if (!loaded.ok) return;
 
-    // Not byte-equal to FROZEN_V2: the v1 learner genuinely lost information that v1 never stored
+    // Not byte-equal to FROZEN_V4: the v1 learner genuinely lost information that v1 never stored
     // (`automne` was proven on day 12, and v1 had nowhere to record it). What must hold is that the
-    // result is well-formed v2 and round-trips.
+    // result is well-formed and round-trips.
     const reserialized = serialize(loaded.value);
-    expect(reserialized).toContain('"v":3');
-    expect(reserialized).toContain('"lastProven":0');
+    expect(reserialized).toContain('"v":4');
+    // The whole row for `automne`, positionally: seen 1, lastSeen 12, lastAsked 0, lastProven 0,
+    // no claim, rung 1, no lapses. Under v3 this assertion could name one field; under v4 naming
+    // one field is impossible, so it names all of them — which is strictly better, because the
+    // failure mode v4 introduces is a SHIFT, and only a whole-row assertion can see a shift.
+    expect(reserialized).toContain('["recognise:fr:automne",1,12,0,0,null,1,0]');
 
     const again = deserialize(reserialized);
     expect(again.ok).toBe(true);
@@ -328,5 +363,97 @@ describe('the migration chain', () => {
     expect(deserialize(withPrior('')).ok).toBe(false);
     expect(deserialize(withPrior('"prior":"yes",')).ok).toBe(false);
     expect(deserialize(withPrior('"prior":-1,')).ok).toBe(false);
+  });
+});
+
+describe('the v3 to v4 re-encoding', () => {
+  it('produces bytes IDENTICAL to what v4 writes natively', () => {
+    // ⚠️ THE STRONGEST ASSERTION IN THIS FILE, and only v4 could make it.
+    //
+    // The v1→v2 and v2→v3 steps each had to INVENT a value — v1 stored no `lastProven`, v2 stored no
+    // repetition count — so a migrated learner is legitimately not byte-identical to a native one and
+    // those tests can only check the result is well-formed. v3→v4 invents nothing: it is a pure
+    // re-encoding of the same seven values. So the bar is exact equality, and anything less means the
+    // "no decisions were taken here" claim on `MIGRATIONS[3]` is false.
+    const loaded = deserialize(FROZEN_V3);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(serialize(loaded.value)).toBe(FROZEN_V4);
+  });
+
+  it('reads a native v4 blob back to the same profile', () => {
+    const loaded = deserialize(FROZEN_V4);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(serialize(loaded.value)).toBe(FROZEN_V4);
+    expect(loaded.value.day).toBe(42);
+    expect(isKnown(unitState(loaded.value, unitKey('recognise', AR, 'سوق')))).toBe(true);
+    expect(isKnown(unitState(loaded.value, unitKey('produce', AR, 'سوق')))).toBe(false);
+  });
+
+  it('refuses a row of the wrong length instead of reading the fields it can', () => {
+    // ⚠️ THE FAILURE MODE v4 INTRODUCES, PINNED. A named object announces its own gaps: a missing
+    // `lastProven` is `undefined` and obvious. A positional row does not — drop one element and
+    // every field after the gap silently becomes its neighbour, so `lastAsked` arrives as
+    // `lastProven`. That is a plausible number that quietly changes what the scheduler believes,
+    // and it is exactly the objection to a positional format.
+    //
+    // The answer is that the length is checked EXACTLY, in both directions. Short is a truncated or
+    // mis-migrated blob; long is a newer format that arrived without a version bump, and assuming
+    // the extra elements are ignorable is how a forward-compatibility bug becomes a data bug.
+    const row = (body: string) =>
+      `{"v":4,"language":"de","day":1,"units":[["recognise:de:x",${body}]]}`;
+
+    expect(deserialize(row('1,5,5,5,null,2,0')).ok).toBe(true);
+    for (const broken of [
+      row('1,5,5,5,null,2'), // one short — every field after the gap shifts
+      row('1,5,5,5,null,2,0,0'), // one long
+      row('1,5,5,5,null'), // three short
+      // A bare key and nothing else. Written out rather than via `row('')`, which would produce a
+      // trailing comma and therefore `not-json` — a different error, and one that would let this
+      // case pass for the wrong reason.
+      '{"v":4,"language":"de","day":1,"units":[["recognise:de:x"]]}',
+    ]) {
+      const loaded = deserialize(broken);
+      expect(loaded.ok).toBe(false);
+      if (loaded.ok) continue;
+      expect(loaded.error.kind).toBe('malformed');
+      // ⚠️ It must NAME the unit. That is why the decoder reads position 0 before it judges the
+      // row's shape: the error is worth having only if it says which word is broken.
+      expect(loaded.error.message).toContain('recognise:de:x');
+    }
+  });
+
+  it('refuses a row whose fields are the right count and the wrong type', () => {
+    // A shift that happens to preserve the length is the remaining hole, and the only defence is
+    // that every position is type-checked. A `null` in an anchor slot or a string in a counter is
+    // what a shifted `prior` actually looks like.
+    const row = (body: string) =>
+      `{"v":4,"language":"de","day":1,"units":[["recognise:de:x",${body}]]}`;
+
+    expect(deserialize(row('1,5,5,null,null,2,0')).ok).toBe(false); // prior's null, one slot early
+    expect(deserialize(row('1,5,5,5,null,2,"0"')).ok).toBe(false); // lapses as a string
+    expect(deserialize(row('1,5,5,5,0,2,0')).ok).toBe(true); // a real claim on day 0 is a number
+    expect(deserialize(row('1,-5,5,5,null,2,0')).ok).toBe(false); // a negative anchor
+    expect(deserialize(row('1.5,5,5,5,null,2,0')).ok).toBe(false); // a fractional counter
+  });
+
+  it('passes an unrecognisable v3 unit through rather than throwing', () => {
+    // The same defence the two earlier steps carry: anything `MIGRATIONS[3]` cannot recognise
+    // reaches `parseRow`, which names the offending key — rather than this function throwing an
+    // unnamed exception on the app's launch path.
+    const junk = '{"v":3,"language":"de","day":1,"units":[["recognise:de:x","not a unit"]]}';
+    const loaded = deserialize(junk);
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok) return;
+    expect(loaded.error.kind).toBe('malformed');
+    expect(loaded.error.message).toContain('recognise:de:x');
+  });
+
+  it('still refuses a profile written by a newer engine', () => {
+    const future = deserialize('{"v":5,"language":"de","day":1,"units":[]}');
+    expect(future.ok).toBe(false);
+    if (future.ok) return;
+    expect(future.error.kind).toBe('from-the-future');
   });
 });
