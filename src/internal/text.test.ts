@@ -128,6 +128,66 @@ describe('foldLatinDiacritics', () => {
   });
 });
 
+describe('foldGermanUmlauts', () => {
+  const fold = (s: string) => applyStep('foldGermanUmlauts', s);
+
+  // ⚠️ THIS BLOCK DID NOT EXIST, and the mutation lane is what said so. `foldGermanUmlauts` is the
+  // most consequential fold in the package — its docstring carries a six-row table of German word
+  // pairs it exists to keep apart — and every one of those claims was pinned only INDIRECTLY, through
+  // the German pack fixture. Two mutants survived a full run as a direct result, both on behaviour
+  // the source explicitly documents.
+
+  it('folds each umlaut to its two-letter form, not to a bare vowel', () => {
+    expect(fold('ä')).toBe('ae');
+    expect(fold('ö')).toBe('oe');
+    expect(fold('ü')).toBe('ue');
+    expect(fold('ß')).toBe('ss');
+  });
+
+  it('KEEPS APART the six pairs a bare-vowel fold would collapse', () => {
+    // ⚠️ THE WHOLE REASON THIS STEP IS NOT `foldLatinDiacritics`. French and German are the same
+    // script and want opposite answers: `é → e` is right, `ö → o` is destructive. Against the real
+    // Latin table every one of these pairs became a single key, so a learner who proved `zahlen`
+    // was credited with `zählen` and the engine would then never teach them one of the two.
+    //
+    // This is the test that fails if someone "simplifies" the two folds into one.
+    const pairs: [string, string][] = [
+      ['schön', 'schon'], // beautiful / already
+      ['zählen', 'zahlen'], // to count / to pay
+      ['fördern', 'fordern'], // to promote / to demand
+      ['drücken', 'drucken'], // to press / to print
+      ['schwül', 'schwul'], // humid / gay
+      ['Bär', 'Bar'], // bear / bar
+    ];
+    for (const [withUmlaut, without] of pairs) {
+      expect(fold(withUmlaut), `${withUmlaut} vs ${without}`).not.toBe(fold(without));
+    }
+  });
+
+  it('folds the CAPITALS too, so the step does not depend on lowercase running first', () => {
+    // ⚠️ A CLAIM THE SOURCE MAKES AND NOTHING CHECKED. `GERMAN_FOLD` carries `Ä Ö Ü ẞ` with the
+    // comment "so the step does not silently depend on `lowercase` running first — a pack author
+    // who omits it gets the right answer anyway". Mutating `Ä: 'ae'` to `Ä: ''` survived a full
+    // mutation run, which means that sentence was decoration.
+    //
+    // Note this is the OPPOSITE policy to `foldLatinDiacritics` above, which is deliberately
+    // lowercase-only. The asymmetry is the point: a missing Latin fold degrades to a redundant
+    // lowercase pass, while a missing German fold silently merges two different words.
+    expect(fold('Ä')).toBe('ae');
+    expect(fold('Ö')).toBe('oe');
+    expect(fold('Ü')).toBe('ue');
+    expect(fold('ẞ')).toBe('ss');
+    expect(fold('BÄR')).toBe('BaeR');
+  });
+
+  it('leaves everything else alone', () => {
+    expect(fold('haus')).toBe('haus');
+    expect(fold('café')).toBe('café');
+    expect(fold('سوق')).toBe('سوق');
+    expect(fold('')).toBe('');
+  });
+});
+
 describe('stripPunctuation', () => {
   const strip = (s: string) => applyStep('stripPunctuation', s);
 
