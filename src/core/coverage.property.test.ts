@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import type { Coverage } from '../model/coverage.js';
+import type { Band, Coverage } from '../model/coverage.js';
 import type { Evidence } from '../model/evidence.js';
 import { unitKey, variety, type Day, type Variety } from '../model/ids.js';
 import type { LanguagePack, Lemma } from '../model/pack.js';
@@ -21,6 +21,9 @@ import { KNOWN_AT_STRENGTH } from '../model/unit.js';
  */
 
 const D = (n: number): Day => n as Day;
+
+/** Every arm of the band, so the vacuity guard can name the one it did not reach. */
+const BANDS: readonly Band[] = ['too-hard', 'in-band', 'too-easy'];
 
 const PACKS: readonly { readonly pack: LanguagePack; readonly variety: Variety }[] = [
   { pack: frenchPack, variety: variety('fr') },
@@ -182,7 +185,33 @@ describe.each(PACKS)('coverage laws — $pack.id', ({ pack, variety: v }) => {
     // This law uses `passageFor`, which guarantees a token count, and then asserts that all three
     // arms were actually observed. If the generator ever stops producing real passages, THIS test
     // fails rather than the band laws quietly passing.
-    const observed = new Set<string>();
+    //
+    // ⚠️ **A VACUITY GUARD IS ITSELF A PROBABILISTIC TEST, AND THIS ONE'S TAIL WAS MEASURED.**
+    //
+    // The three arms are not equally likely, because `too-easy` needs at most ONE unknown token in a
+    // hundred and the knob is a count of LEMMAS. Measured over 30,000 samples at the default run
+    // count, per pack:
+    //
+    //   too-hard 76%   in-band 16%   too-easy 8%
+    //
+    // At fast-check's default `numRuns: 100` the chance a run never sees `too-easy` is
+    // `0.92^100 ≈ 2.4e-4` — one suite run in about two thousand, across two packs. That is not
+    // "never"; it is a flake that arrives every few weeks of active development, and a guard that
+    // goes red for no reason is a guard somebody eventually deletes. **400 runs takes it to
+    // `0.92^400 ≈ 3e-15`**, for about 150 ms.
+    //
+    // ⚠️ MORE SAMPLES OF THE SAME GENERATOR, deliberately — not a pinned seed and not a generator
+    // tuned to hit `too-easy` more often. A pinned seed would prove the arms are reachable *for that
+    // seed*, and would flip red on a fast-check upgrade that changes the seed→sample mapping, which
+    // reads exactly like a regression. A tuned generator would prove something about a distribution
+    // no law is fed. Strictly more evidence about the same thing is the only change that cannot
+    // weaken the claim.
+    //
+    // ⚠️ ONE constant, read by both the run and the message. Written out twice, the message went on
+    // claiming "in 400 runs" while the run count said 1 — caught while checking that the failure
+    // text reads well, which is the whole reason to check it.
+    const RUNS = 400;
+    const tally = new Map<Band, number>();
 
     fc.assert(
       fc.property(passageFor(pack.id, 100), fc.nat({ max: 100 }), (text, unknownWanted) => {
@@ -196,11 +225,22 @@ describe.each(PACKS)('coverage laws — $pack.id', ({ pack, variety: v }) => {
         expect(result.kind).toBe('measured');
         if (result.kind !== 'measured') return;
         expect(result.runningTokens).toBe(100);
-        observed.add(result.band);
+        tally.set(result.band, (tally.get(result.band) ?? 0) + 1);
       }),
+      { numRuns: RUNS },
     );
 
-    expect(observed).toEqual(new Set(['too-hard', 'in-band', 'too-easy']));
+    // ⚠️ NAMES THE MISSING ARM AND CARRIES THE TALLY. The assertion this replaces was
+    // `expect(observed).toEqual(new Set([…]))`, whose failure message is two sets and no diagnosis —
+    // it says an arm is missing but not which, and nothing at all about how close the run came.
+    // Establishing that afterwards cost a hundred and fifty repeat runs and two instrumented
+    // harnesses. The message should have done it in one line.
+    const missing = BANDS.filter((band) => (tally.get(band) ?? 0) === 0);
+    expect(
+      missing,
+      `never generated: ${missing.join(', ')} — in ${String(RUNS)} runs the generator produced ` +
+        BANDS.map((b) => `${b}=${String(tally.get(b) ?? 0)}`).join(' '),
+    ).toEqual([]);
   });
 
   it('returns `unverified` exactly when the two readings disagree, and never otherwise', () => {
