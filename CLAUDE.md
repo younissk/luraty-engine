@@ -197,6 +197,23 @@ token count. And `coverage.property.test.ts` carries an explicit **vacuity guard
 three band arms were actually observed during the run — copy that pattern whenever a law describes
 a branch a generator might never reach.
 
+⚠️ **And the third floor: a vacuity guard is itself a probabilistic test, so measure its tail.**
+The band arms are not equally likely — measured at **too-hard 76% · in-band 16% · too-easy 8%** — so
+at fast-check's default `numRuns: 100` the chance a run never sees `too-easy` is `0.92^100 ≈ 2.4e-4`,
+about one suite run in two thousand across both packs. That is not "never"; it is a red tick every
+few weeks, and a guard that flakes is a guard somebody deletes. It runs **400 times** now
+(`0.92^400 ≈ 3e-15`) for ~150 ms.
+
+**More samples of the SAME generator — never a pinned seed, never a generator tuned to hit the rare
+arm.** A pinned seed proves the arms are reachable _for that seed_ and flips red on a fast-check
+upgrade that changes the seed→sample mapping, which reads exactly like a regression. A tuned
+generator proves something about a distribution no law is fed.
+
+**And make the guard name what it missed.** The assertion used to be
+`expect(observed).toEqual(new Set([…]))`, whose failure message is two sets and no diagnosis — it
+says an arm is missing, not which, and nothing about how close the run came. Establishing that after
+the fact cost 150 repeat runs and two instrumented harnesses; the message now does it in one line.
+
 Two laws are worth writing _before_ the functions they describe: `record` is a fold, and
 `serialize` → `deserialize` round-trips with canonical ordering.
 
