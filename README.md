@@ -69,6 +69,13 @@ here is a claim about.
 
 Watch it run for thirty days: `npm run demo`.
 
+**How fast is it on a phone?** `make bench` — it runs the same bundle under Node and under Hermes,
+which is the runtime React Native actually ships, and projects the result onto an older device.
+`make stress` asks the other question: 250,000-unit profiles, megabyte texts, adversarial input,
+every scenario in its own process so a limit is _named_ rather than fatal. Read
+[docs/guides/benchmarking.md](docs/guides/benchmarking.md) before quoting a number from it — in
+particular the device multiplier is an estimate until you calibrate it, and the guide says how.
+
 ## Why it is a separate package
 
 An adaptive engine is only testable if it is deterministic and runnable headless — you validate it

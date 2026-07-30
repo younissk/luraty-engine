@@ -290,6 +290,44 @@ export function fingerprint(): string {
     );
   }
 
+  // ── Closures over a loop variable ────────────────────────────────────────────────────────────
+  //
+  // ⚠️ **HERMES 0.13.0 GETS THIS WRONG, MEASURED, AND IT IS THE WORST SHAPE OF WRONG THERE IS.**
+  //
+  // ES6 gives a `let`/`const` loop variable a FRESH binding per iteration, so a closure built inside
+  // the loop body captures that iteration's value. Hermes 0.13.0 does not: every closure sees the
+  // LAST value, which is the `var` semantics ES6 abolished. Node is right, Hermes is wrong, and
+  // nothing errors — the program runs and quietly computes with one wrong value.
+  //
+  // Found by the benchmark lane, and found only because the same bundle ran on both runtimes. It had
+  // silently made every profile-size measurement report the same number, which looked like a
+  // performance FINDING rather than a bug: "a 20,000-unit learner costs the same as a 4,000-unit
+  // one" is a plausible-sounding result and it was an artefact.
+  //
+  // No file under `src/core`, `src/model` or `src/internal` builds a closure that escapes a loop
+  // body today, so nothing shipping is affected — which is exactly why this belongs here rather than
+  // in a comment somewhere. The next person to write `for (const x of xs) handlers.push(() => x)` in
+  // this package gets a red line instead of a phone-only bug.
+  //
+  // ⚠️ A real React Native app usually escapes this: Metro runs Babel, whose block-scoping transform
+  // rewrites the capture. This bundle does not go through Babel, so it sees the raw runtime. That
+  // makes this line a check on HERMES, not a prediction about the app — and the reason to keep
+  // writing the factory form anyway is that the workaround costs nothing and the bug is invisible.
+  {
+    const captured: (() => number)[] = [];
+    for (const n of [1, 2, 3]) captured.push(() => n);
+    lines.push(`loop-capture-for-of | 1,2,3 | ${captured.map((f) => String(f())).join(',')}`);
+
+    const counted: (() => number)[] = [];
+    for (let i = 0; i < 3; i++) counted.push(() => i);
+    lines.push(`loop-capture-c-for | 0,1,2 | ${counted.map((f) => String(f())).join(',')}`);
+
+    // The workaround, pinned alongside the bug: a CALL FRAME is a fresh binding everywhere. If this
+    // line ever differs between runtimes, the advice in `bench.ts` is no longer safe either.
+    const byFrame = [1, 2, 3].map((n) => () => n);
+    lines.push(`loop-capture-factory | 1,2,3 | ${byFrame.map((f) => String(f())).join(',')}`);
+  }
+
   // ── Number and JSON behaviour, which have historically differed ──────────────────────────────
   lines.push(`json-order | | ${JSON.stringify({ b: 1, a: 2, 10: 3, 2: 4 })}`);
   lines.push(`json-escape | | ${JSON.stringify('سوق  👍')}`);

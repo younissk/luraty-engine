@@ -102,25 +102,82 @@ writeFileSync(join(outDir, 'hermes.txt'), hermesRun.stdout);
 const nodeLines = nodeOut.trimEnd().split('\n');
 const hermesLines = hermesRun.stdout.trimEnd().split('\n');
 
+/**
+ * Differences that are REAL, UNDERSTOOD, and not ours to fix.
+ *
+ * ⚠️ A short list on purpose, and every entry is a liability. The lane's whole value is that a
+ * difference is a failure; an allowlist is the mechanism by which that value is thrown away one
+ * plausible exception at a time. Adding an entry means: this is a runtime bug, we have read it, and
+ * the engine's own code does not depend on the behaviour.
+ *
+ * ⚠️ IT IS CHECKED IN BOTH DIRECTIONS. A listed label that does NOT differ is also a failure — the
+ * runtime was fixed and the entry is now a lie sitting in front of a real check. So the list cannot
+ * quietly rot into an excuse.
+ */
+const KNOWN_DIVERGENCES = {
+  'loop-capture-for-of':
+    'Hermes 0.13.0 gives a `const` for-of loop variable ONE binding for the whole loop, not one ' +
+    'per iteration, so every closure built in the loop body sees the last value. Nothing under ' +
+    'src/core, src/model or src/internal builds a closure that escapes a loop body, so no shipping ' +
+    'code depends on it. Metro/Babel also rewrites this in a real RN app. Write the factory form ' +
+    '(see loop-capture-factory) anyway — it costs nothing and the bug is silent.',
+  'loop-capture-c-for': 'The same defect for `for (let i = 0; …)`. Same reasoning, same verdict.',
+};
+
+/** The label is everything before the first ` | `. */
+function labelOf(line) {
+  return (line ?? '').split(' | ')[0]?.trim() ?? '';
+}
+
 const diffs = [];
+const known = new Set();
 const max = Math.max(nodeLines.length, hermesLines.length);
 for (let i = 0; i < max; i++) {
-  if (nodeLines[i] !== hermesLines[i]) {
-    diffs.push({
-      line: i + 1,
-      node: nodeLines[i] ?? '(missing)',
-      hermes: hermesLines[i] ?? '(missing)',
-    });
+  if (nodeLines[i] === hermesLines[i]) continue;
+  const label = labelOf(nodeLines[i]);
+  if (Object.prototype.hasOwnProperty.call(KNOWN_DIVERGENCES, label)) {
+    known.add(label);
+    continue;
   }
+  diffs.push({
+    line: i + 1,
+    node: nodeLines[i] ?? '(missing)',
+    hermes: hermesLines[i] ?? '(missing)',
+  });
 }
+
+// The other direction: a listed label that agreed. Either the runtime was fixed — in which case the
+// entry must go, so the check comes back — or the line was renamed and the allowlist is now silently
+// exempting nothing while the real difference sails through under its new name.
+const stale = Object.keys(KNOWN_DIVERGENCES).filter((label) => !known.has(label));
 
 const version = spawnSync(hermes, ['--version'], { encoding: 'utf8' }).stdout.split('\n')[0] ?? '?';
 
+if (stale.length > 0) {
+  console.error(
+    `\x1b[31mFAIL\x1b[0m hermes lane — ${String(stale.length)} known-divergence entr${stale.length === 1 ? 'y' : 'ies'} no longer diverge`,
+  );
+  console.error(
+    '     Either Hermes was fixed (delete the entry — the real check comes back) or the\n' +
+      '     fingerprint line was renamed (the allowlist is now exempting nothing).\n',
+  );
+  for (const label of stale) console.error(`  ${label}`);
+  process.exit(1);
+}
+
 if (diffs.length === 0) {
   console.log(
-    `\x1b[32mPASS\x1b[0m hermes lane — ${String(nodeLines.length)} checks identical on Node and Hermes`,
+    `\x1b[32mPASS\x1b[0m hermes lane — ${String(nodeLines.length - known.size)} checks identical on Node and Hermes`,
   );
   console.log(`     hermes: ${version.trim()}`);
+  if (known.size > 0) {
+    console.log(
+      `     ${String(known.size)} KNOWN divergence${known.size === 1 ? '' : 's'}, each a runtime bug rather than ours:`,
+    );
+    for (const label of known) {
+      console.log(`       \x1b[33m${label}\x1b[0m — ${KNOWN_DIVERGENCES[label]}`);
+    }
+  }
   process.exit(0);
 }
 
