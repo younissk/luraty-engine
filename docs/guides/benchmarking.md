@@ -73,33 +73,86 @@ problems is reliable, the absolute milliseconds are not.
 ## What the run found (2026-07-30, real German pack)
 
 The Node→Hermes ratio alone is worth knowing: **Hermes is 4–10× slower than Node on this
-workload**, and the ratio is not uniform — `serialize` is ~7×, `plan` ~8×, `key` ~8×, while
-`record` is only ~2×. A laptop profile would have ranked these differently from how the phone does.
+workload**, and the ratio is not uniform — `serialize` is ~6×, `plan` ~6×, `key` ~7×, while `record`
+is only ~2×. A laptop profile would have ranked these differently from how the phone does.
 
-Five things are over budget on an older phone before any pool grows unreasonably:
+Everything is **O(pool)** on paths a product calls per answer, per save and per session, and the
+pool is the thing that grows forever. Nothing is quadratic; the adversarial set was unremarkable.
+**The engine's risk is size, not shape.**
 
-| what                               | why it matters                                                                                       |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `serialize` at 20k units           | **2.4 MB of JSON on every save**, ~90 ms under Hermes. It grows linearly and it is on the save path. |
-| `plan` at 20k units                | 60 ms under Hermes — it scans and sorts the whole pool for a 20-item session.                        |
-| `record` (one answer) at 20k units | 7.4 ms under Hermes for ONE answer, because `record` shallow-copies the entire unit map.             |
-| `createPack`                       | 323 ms under Hermes, once at launch, for 10k frequency entries + 15k lemma rows.                     |
-| `key` over 1,000 tokens            | 7.3 ms under Hermes per screen of text.                                                              |
+## Optimisations applied, and what they bought
 
-None of these is a bug. They are all **O(pool)** work on paths that a product calls per answer, per
-save and per session, and the profile is the thing that grows forever. The engine is correct and the
-shape is the risk.
+Three changes, all behaviour-preserving — the 447-test suite, the wire golden and the 897-check
+cross-runtime fingerprint all passed unchanged, which for a rewrite of the text layer is the whole
+proof. Hermes milliseconds, before → after:
 
-Two of them have obvious, contained fixes if they ever bite:
+| what                                 | 20k units    | change   |
+| ------------------------------------ | ------------ | -------- |
+| `createPack` — cold start            | 323 → 150 ms | **−54%** |
+| `key` over 1,000 tokens — per screen | 7.3 → 3.4 ms | **−53%** |
+| `compare` × 100 — per answer         | 786 → 359 µs | **−54%** |
+| `coverage` — 200 / 2,000 tokens      | −49% / −48%  | **−48%** |
+| `serialize` — per save               | 79 → 57 ms   | **−37%** |
+| `summarize`                          | 20 → 13 ms   | **−35%** |
+| `plan` — per session                 | 53 → 37 ms   | **−38%** |
 
-- **`serialize` on every save is the sharpest one.** A profile is append-mostly; writing the whole
-  blob each time is what makes a 60,000-unit learner cost 7.3 MB and, projected, seconds. This is a
-  HOST problem before it is an engine one — the host chooses the save cadence — but the engine could
-  offer a delta.
-- **`record`'s whole-map copy.** Value-in/value-out is load-bearing and must not be given up, but
-  the copy is per CALL, so batching a session into one `record` already collapses twenty copies into
-  one. `record.batch20` measures exactly that, and at 20k units it is 8× cheaper than twenty
-  singles. **A host should batch.** That is a documentable rule, not a rewrite.
+**1. `transform` in `internal/text.ts` — do not rebuild a string that does not change.** Every
+normalize step was `for (const ch of s) out += ch`, which allocates a one-character string per
+character, concatenates per character, and returns a fresh copy even when nothing was substituted.
+Most words are untouched by most steps — a German lemma has no punctuation to strip — so the common
+case now scans and returns the input **by identity**. The tables are keyed by code point rather than
+by character, so nothing is materialised unless a substitution fires, and unchanged runs are copied
+with one `slice`. This is why `createPack`, `key`, `compare` and `coverage` all roughly halved: they
+are all the same loop, run 160,000 times at launch and once per token thereafter.
+
+**2. `Object.keys` instead of `Object.entries` in `serialize`, `summarize` and `createPack`.**
+`entries` materialises one two-element array per unit before the loop body runs once. Worse, in
+`serialize` the comparator was `([a], [b]) => …`, which **destructures both arrays on every
+comparison** — roughly 280,000 array destructures inside one sort of a 20,000-unit profile. Sorting
+plain keys and filling a pre-sized array does identical work with none of it.
+
+**3. `plan` picks its comparator once.** The priority tier is a no-op when the host named nothing,
+but a comparator runs O(n log n) times, so the no-op still cost two `Map` lookups per comparison to
+reach a branch that could never be taken. Hoisting the emptiness test out of the inner loop is free
+and bought 38%.
+
+⚠️ `record` was **not** touched, so read its −16% row as measurement noise rather than as a result.
+Reporting it as a win would be the benchmark flattering the work that produced it.
+
+## What is still on the table
+
+Ranked by measured win over cost. None is a bug; all three are decisions.
+
+**A. A tuple wire format — measured 60% smaller.** Every unit currently serializes its seven field
+NAMES, 73 bytes of pure repetition per unit: 2,438,933 bytes for 20,000 units, of which the values
+are 978,933. A positional row is a straight **2.44 MB → 0.98 MB**, and since both `JSON.stringify`
+and `JSON.parse` cost scales with output size, `serialize` and `deserialize` should follow it down.
+This is the single largest remaining win and it sits on the sharpest path. It needs wire v4, a v3→v4
+migration, a new golden and an ADR — the argument against is that a positional row is not readable
+by eye and a field-order mistake shifts every value silently, which parse-side validation and a
+frozen golden are the answer to. Pre-live, so it costs nothing but the work.
+
+**B. `plan` by bounded selection instead of a full sort.** It sorts ~19,400 items to consume at most 60. Partitioning `new` from the rest during the scan already there, keeping the top 30 and top 60 by
+a size-K heap, and merging, is provably sufficient — `take` consumes at most `maxItems` and
+`nameWithSpares` names at most `maxItems * OVER_ASK` with new capped at `maxNew * OVER_ASK` — and
+turns O(n log n) into O(n log 60). The scan itself is irreducible, so expect roughly half of what is
+left. It needs a **differential property test**: keep today's implementation in the test file and
+assert the two produce identical sessions over random profiles. That is the right proof and it is
+cheap.
+
+**C. `Profile.units` as a `Map`.** One change would do two things — remove the 196,607-property
+Hermes ceiling, and possibly make `record`'s clone cheaper. **Measure before committing**: it is a
+public type change touching every consumer, and the payoff on the clone is unverified. It does not
+change the asymptotics; `record` stays O(pool) per call either way.
+
+**And one that costs nothing at all: the host should batch.** `record`'s copy is per CALL, so
+folding a whole session in one call collapses twenty copies into one — measured **8× cheaper** at
+20,000 units. Saving on a cadence rather than per answer does the same for `serialize`. Neither is
+an engine change.
+
+**Rejected: shipping pre-normalized pack data** so `createPack` can skip the work. It would move
+normalization out of the engine and into each pack's build script, which is exactly how `läuft` and
+`laufen` became two unit keys once already. Correctness beats 150 ms at launch.
 
 ## The stress lane
 

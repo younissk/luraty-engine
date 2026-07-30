@@ -229,15 +229,31 @@ export function plan(profile: Profile, options: PlanOptions): Session {
   // The comparison is on UTF-16 code units, the same total order `persist.ts` uses, and for the same
   // two reasons: `localeCompare` is ICU-backed and unavailable on Hermes, and a locale-aware sort
   // would make a learner's session depend on their device's language settings.
-  due.sort((a, b) => {
-    if (a.daysWaiting !== b.daysWaiting) return b.daysWaiting - a.daysWaiting;
-    // The caller's order, when it gave one. Anything it did not mention sorts after everything it
-    // did — `Infinity` rather than a large integer, so no list length can collide with it.
-    const pa = priority.get(a.unit) ?? Infinity;
-    const pb = priority.get(b.unit) ?? Infinity;
-    if (pa !== pb) return pa - pb;
-    return a.unit < b.unit ? -1 : 1;
-  });
+  // ⚠️ TWO COMPARATORS, CHOSEN ONCE, AND THEY ARE THE SAME ORDER. The middle tier is a no-op when the
+  // caller named nothing — every `priority.get` misses, every unit gets `Infinity`, and `pa !== pb`
+  // is false for all of them — but a comparator runs O(n log n) times, so "a no-op" still cost two
+  // Map lookups per comparison: roughly 280,000 of them on a 20,000-unit profile, to reach a branch
+  // that could never be taken. Hoisting the emptiness test out of the inner loop is free.
+  //
+  // ⚠️ The two MUST stay identical in the tiers they share. If a third tier is ever added, add it to
+  // both — a fast path that orders differently from the slow one is a session that changes shape
+  // depending on whether the host passed an empty array.
+  due.sort(
+    priority.size === 0
+      ? (a, b) => {
+          if (a.daysWaiting !== b.daysWaiting) return b.daysWaiting - a.daysWaiting;
+          return a.unit < b.unit ? -1 : 1;
+        }
+      : (a, b) => {
+          if (a.daysWaiting !== b.daysWaiting) return b.daysWaiting - a.daysWaiting;
+          // The caller's order. Anything it did not mention sorts after everything it did —
+          // `Infinity` rather than a large integer, so no list length can collide with it.
+          const pa = priority.get(a.unit) ?? Infinity;
+          const pb = priority.get(b.unit) ?? Infinity;
+          if (pa !== pb) return pa - pb;
+          return a.unit < b.unit ? -1 : 1;
+        },
+  );
 
   const items = take(due, maxItems, maxNew);
   const named = nameWithSpares(due, items, maxItems * OVER_ASK, maxNew * OVER_ASK);

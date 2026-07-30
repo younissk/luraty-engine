@@ -41,7 +41,7 @@ const TATWEEL = 0x0640;
  * Not a simplification. Arabic writers genuinely vary here, so treating أحمد and احمد as different
  * words would fragment a learner's knowledge across spellings of the same thing.
  */
-const ALEF_VARIANTS = new Set([0x0622, 0x0623, 0x0625, 0x0671]);
+const ALEF_VARIANTS: ReadonlySet<number> = new Set([0x0622, 0x0623, 0x0625, 0x0671]);
 const ALEF = 'ا';
 
 /** ة → ه and ى → ي: the other pair writers vary on, especially word-finally. */
@@ -118,62 +118,135 @@ const LATIN_FOLD: Readonly<Record<string, string>> = {
  */
 // Spreading a string yields code points, which is exactly what a set of single characters wants.
 // (`no-misused-spread` is off package-wide; the argument lives in `eslint.config.js`, once.)
-const PUNCTUATION = new Set([
-  ...'.,;:!?"`()[]{}<>«»„“”‘’–—-_/\\|@#$%^&*+=~',
-  '،', // ، Arabic comma
-  '؛', // ؛ Arabic semicolon
-  '؟', // ؟ Arabic question mark
-  '٪', // ٪ Arabic percent
-  '۔', // ۔ Urdu full stop
-]);
+//
+// ⚠️ KEYED BY CODE POINT, not by character, and that is a performance change rather than a style one
+// — see {@link transform}. The source stays a readable literal string; only the lookup key changes.
+const PUNCTUATION: ReadonlySet<number> = new Set(
+  [
+    ...'.,;:!?"`()[]{}<>«»„“”‘’–—-_/\\|@#$%^&*+=~',
+    '،', // ، Arabic comma
+    '؛', // ؛ Arabic semicolon
+    '؟', // ؟ Arabic question mark
+    '٪', // ٪ Arabic percent
+    '۔', // ۔ Urdu full stop
+  ].map((ch) => ch.codePointAt(0) ?? -1),
+);
+
+// ── The mechanism every step shares ─────────────────────────────────────────────────────────────
+
+/**
+ * Rebuild a string, and **only if something actually changes**.
+ *
+ * ⚠️ THIS IS THE HOT PATH OF THE WHOLE PACKAGE. It runs once per normalize step per word: 160,000
+ * times while `createPack` builds the German pack (10,000 frequency entries plus 15,000 lemma rows,
+ * both sides, four steps), and once per token on every screen of text a learner reads. It was
+ * measured at 286 ms of a phone's cold start and 7.3 ms per thousand tokens, both under Hermes.
+ *
+ * Three things it avoids, each of which the obvious `for (const ch of s) out += ch` loop does:
+ *
+ * 1. **An allocation when nothing changes.** Most words are untouched by most steps — a German lemma
+ *    has no punctuation to strip and usually no umlaut to fold — so the common case is now a scan
+ *    that returns the input by identity. The old code rebuilt every string four times to arrive back
+ *    at what it started with.
+ * 2. **A one-character string per character.** `replace` takes a CODE POINT, so the tables are keyed
+ *    by number and nothing is materialised unless a substitution actually fires.
+ * 3. **Per-character concatenation.** Unchanged runs are copied with one `slice` rather than one
+ *    append each.
+ *
+ * ⚠️ **THE ITERATION IS CODE-POINT-EXACT, and it has to be.** `s.codePointAt(i)` returns the paired
+ * value for a surrogate pair and the lone surrogate's own value for an unpaired one, so `size` is 2
+ * exactly when `for…of` would have yielded a two-unit character — including for `'👍🏽'`, which is
+ * four units and two code points. The cross-runtime fingerprint pushes that string and
+ * `'𝔘𝔫𝔦𝔠𝔬𝔡𝔢'` through all eight steps under both Node and Hermes, so a mistake here is a red
+ * line rather than a silently different key on a phone.
+ *
+ * `replace` returns `undefined` to keep the character, `''` to delete it, or a replacement — so a
+ * table lookup that misses IS the keep signal and needs no second test.
+ */
+function transform(s: string, replace: (code: number) => string | undefined): string {
+  let out = '';
+  /** Index in `s` just past the last character already emitted into `out`. */
+  let kept = 0;
+  let changed = false;
+
+  for (let i = 0; i < s.length;) {
+    const code = s.codePointAt(i);
+    if (code === undefined) break;
+    const size = code > 0xffff ? 2 : 1;
+    const next = replace(code);
+    if (next !== undefined) {
+      out += s.slice(kept, i) + next;
+      kept = i + size;
+      changed = true;
+    }
+    i += size;
+  }
+
+  // Identity, not a copy. Every caller either returns this straight out or feeds it to the next step,
+  // and `createPack` does it 160,000 times.
+  if (!changed) return s;
+  return out + s.slice(kept);
+}
 
 // ── The steps ───────────────────────────────────────────────────────────────────────────────────
+//
+// Each replacer is a module-level constant rather than an inline arrow, so the 160,000 calls above
+// share one closure instead of allocating one each.
+
+const DELETE = '';
+
+const dropArabicDiacritic = (code: number): string | undefined =>
+  isArabicDiacritic(code) ? DELETE : undefined;
+
+const dropTatweel = (code: number): string | undefined => (code === TATWEEL ? DELETE : undefined);
+
+const toAlef = (code: number): string | undefined => (ALEF_VARIANTS.has(code) ? ALEF : undefined);
+
+const toFinal = (code: number): string | undefined =>
+  code === TEH_MARBUTA ? HEH : code === ALEF_MAKSURA ? YEH : undefined;
+
+const dropPunctuation = (code: number): string | undefined =>
+  PUNCTUATION.has(code) ? DELETE : undefined;
 
 function stripArabicDiacritics(s: string): string {
-  let out = '';
-  for (const ch of s) {
-    const code = ch.codePointAt(0);
-    if (code !== undefined && isArabicDiacritic(code)) continue;
-    out += ch;
-  }
-  return out;
+  return transform(s, dropArabicDiacritic);
 }
 
 function stripTatweel(s: string): string {
-  let out = '';
-  for (const ch of s) {
-    if (ch.codePointAt(0) === TATWEEL) continue;
-    out += ch;
-  }
-  return out;
+  return transform(s, dropTatweel);
 }
 
 function normalizeArabicAlef(s: string): string {
-  let out = '';
-  for (const ch of s) {
-    const code = ch.codePointAt(0);
-    out += code !== undefined && ALEF_VARIANTS.has(code) ? ALEF : ch;
-  }
-  return out;
+  return transform(s, toAlef);
 }
 
 function normalizeArabicFinals(s: string): string {
-  let out = '';
-  for (const ch of s) {
-    const code = ch.codePointAt(0);
-    if (code === TEH_MARBUTA) out += HEH;
-    else if (code === ALEF_MAKSURA) out += YEH;
-    else out += ch;
-  }
-  return out;
+  return transform(s, toFinal);
 }
 
-function foldLatinDiacritics(s: string): string {
-  let out = '';
-  for (const ch of s) {
-    out += LATIN_FOLD[ch] ?? ch;
+/**
+ * The fold tables as code-point Maps.
+ *
+ * ⚠️ A Map and not the object literal, for the reason `createPack` uses one for its lemma table:
+ * `LATIN_FOLD['constructor']` reaches through the prototype chain and returns a FUNCTION. A single
+ * character can never spell `constructor`, so the old `LATIN_FOLD[ch] ?? ch` was safe by accident —
+ * and `transform` returns the lookup result directly, which turns "safe by accident" into a
+ * character substituted with a function's source text. Keying by number removes the class.
+ */
+function foldTable(source: Readonly<Record<string, string>>): ReadonlyMap<number, string> {
+  const table = new Map<number, string>();
+  for (const [ch, to] of Object.entries(source)) {
+    const code = ch.codePointAt(0);
+    if (code !== undefined) table.set(code, to);
   }
-  return out;
+  return table;
+}
+
+const LATIN_FOLD_BY_CODE = foldTable(LATIN_FOLD);
+const foldLatin = (code: number): string | undefined => LATIN_FOLD_BY_CODE.get(code);
+
+function foldLatinDiacritics(s: string): string {
+  return transform(s, foldLatin);
 }
 
 /**
@@ -216,21 +289,15 @@ const GERMAN_FOLD: Readonly<Record<string, string>> = {
   ẞ: 'ss',
 };
 
+const GERMAN_FOLD_BY_CODE = foldTable(GERMAN_FOLD);
+const foldGerman = (code: number): string | undefined => GERMAN_FOLD_BY_CODE.get(code);
+
 function foldGermanUmlauts(s: string): string {
-  let out = '';
-  for (const ch of s) {
-    out += GERMAN_FOLD[ch] ?? ch;
-  }
-  return out;
+  return transform(s, foldGerman);
 }
 
 function stripPunctuation(s: string): string {
-  let out = '';
-  for (const ch of s) {
-    if (PUNCTUATION.has(ch)) continue;
-    out += ch;
-  }
-  return out;
+  return transform(s, dropPunctuation);
 }
 
 /**
