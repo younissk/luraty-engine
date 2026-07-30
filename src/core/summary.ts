@@ -70,8 +70,17 @@ export function summarize(profile: Profile, scope: SummaryScope): Summary {
   let stuck = 0;
   let lastProven = NEVER;
 
-  for (const [key, state] of Object.entries(profile.units)) {
-    if (!inScope(key as UnitKey, scope)) continue;
+  // ⚠️ `Object.keys`, not `Object.entries`, and it is not a style preference. `entries` materialises
+  // one two-element array PER UNIT before the loop body has run once — 20,000 throwaway arrays for a
+  // function that returns eight integers, on a runtime with no generational nursery to make that
+  // free. The indexed lookup reads the same state with no allocation at all.
+  for (const key of Object.keys(profile.units) as UnitKey[]) {
+    const state = profile.units[key];
+    // Cannot miss: the key came from `Object.keys`. Present because `noUncheckedIndexedAccess` says
+    // so, and a `!` here would be a lie about an index signature. Same known equivalent mutant as
+    // `plan()` carries, for the same stated reason.
+    if (state === undefined) continue;
+    if (!inScope(key, scope)) continue;
 
     units += 1;
     // ⚠️ THE EFFECTIVE RUNG, not the raw one — so a confirmed claim shows up in the histogram at the

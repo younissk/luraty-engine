@@ -63,9 +63,29 @@ function toWire(state: UnitState): WireUnitV3 {
  * bug this is meant to prevent.
  */
 export function serialize(profile: Profile): string {
-  const units: WireEntryV3[] = Object.entries(profile.units)
-    .map(([key, state]): WireEntryV3 => [key, toWire(state)])
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  // ⚠️ SORT THE KEYS, THEN BUILD — not `Object.entries().map().sort()`, which is the obvious shape
+  // and three avoidable allocations per unit deep.
+  //
+  // `Object.entries` materialises one two-element array per unit, `.map` materialises another, and
+  // the comparator `([a], [b]) => …` then DESTRUCTURES BOTH on every single comparison — so a
+  // 20,000-unit profile paid for ~280,000 array destructures inside the sort alone. Sorting plain
+  // strings and filling a pre-sized array does the same work with none of it. Measured on the
+  // save path, which is the sharpest number in the whole benchmark.
+  const keys = (Object.keys(profile.units) as UnitKey[]).sort((a, b) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  const units: WireEntryV3[] = new Array<WireEntryV3>(keys.length);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    // `noUncheckedIndexedAccess` types both lookups as possibly-undefined. Neither can miss — the
+    // key came from `Object.keys` and the index from its own length — so this is the same known
+    // equivalent mutant `plan()` carries, kept for the same reason: a `!` that lies about an index
+    // signature is worse in the file than a survivor with a comment.
+    if (key === undefined) continue;
+    const state = profile.units[key];
+    if (state === undefined) continue;
+    units[i] = [key, toWire(state)];
+  }
 
   const wire: WireProfile = {
     v: PROFILE_SCHEMA_VERSION,
