@@ -178,19 +178,21 @@ describe('summarize partitions the profile exactly', () => {
 });
 
 describe('the content request agrees with the session it accompanies', () => {
-  it('serializes a claimed prior and a high rung, which the v3 golden does not reach', () => {
-    // ⚠️ FROZEN_V3 records only retrievals and exposures, so every unit in it has `"prior":null` and
-    // a rung of 0, 1 or 2. The `claimed` arm of `priorToWire` and the upper half of the ladder were
-    // unpinned by any byte-level assertion — a review confirmed that mutating both survived the full
-    // suite. This is the byte assertion that kills them.
+  it('serializes a claimed prior and a high rung, which the wire golden does not reach', () => {
+    // ⚠️ The frozen goldens record only retrievals and exposures, so every unit in them has a null
+    // prior and a rung of 0, 1 or 2. The `claimed` arm of `priorToWire` and the upper half of the
+    // ladder were unpinned by any byte-level assertion — a review confirmed that mutating both
+    // survived the full suite. This is the byte assertion that kills them.
+    //
+    // Under wire v4 it does a second job: this is the only place a NON-null `prior` appears at a
+    // known position, so it is what would catch that slot being written or read one place out.
     let p = createProfile('de', D(1));
     p = record(p, [{ kind: 'claim', unit: U('a'), day: D(7) }]);
     for (let i = 1; i <= 8; i++) p = record(p, [drill('a', 'known', i)]);
 
+    // seen, lastSeen, lastAsked, lastProven, prior, strength, lapses — the order `WireRowV4` declares.
     expect(serialize(p)).toBe(
-      '{"v":3,"language":"de","day":1,"units":[' +
-        '["recognise:de:a",{"seen":8,"lastSeen":8,"lastAsked":8,"lastProven":8,"prior":7,"strength":6,"lapses":0}]' +
-        ']}',
+      '{"v":4,"language":"de","day":1,"units":[["recognise:de:a",8,8,8,8,7,6,0]]}',
     );
 
     const back = deserialize(serialize(p));

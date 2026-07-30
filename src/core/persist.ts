@@ -3,11 +3,11 @@ import type { Profile } from '../model/profile.js';
 import { clampStrength, KNOWN_AT_STRENGTH, type Prior, type UnitState } from '../model/unit.js';
 import {
   PROFILE_SCHEMA_VERSION,
+  WIRE_ROW_V4_LENGTH,
   type Decoded,
   type DecodeError,
-  type WireEntryV3,
   type WireProfile,
-  type WireUnitV3,
+  type WireRowV4,
 } from '../model/wire.js';
 import { assertNever } from '../internal/assert.js';
 
@@ -24,7 +24,7 @@ import { assertNever } from '../internal/assert.js';
 
 // ── Encoding ────────────────────────────────────────────────────────────────────────────────────
 
-/** A prior, flattened for storage. See {@link WireUnitV3.prior}. */
+/** A prior, flattened for storage. See {@link WireRowV4}. */
 function priorToWire(prior: Prior): number | null {
   switch (prior.kind) {
     case 'none':
@@ -36,16 +36,23 @@ function priorToWire(prior: Prior): number | null {
   }
 }
 
-function toWire(state: UnitState): WireUnitV3 {
-  return {
-    seen: state.seen,
-    lastSeen: state.lastSeen,
-    lastAsked: state.lastAsked,
-    lastProven: state.lastProven,
-    prior: priorToWire(state.prior),
-    strength: state.strength,
-    lapses: state.lapses,
-  };
+/**
+ * One unit, as the positional row v4 stores.
+ *
+ * ⚠️ THE ORDER IS THE FORMAT — it is declared on {@link WireRowV4} and this function and
+ * {@link parseRow} are the only two places allowed to know it. They must be read side by side.
+ */
+function toRow(key: UnitKey, state: UnitState): WireRowV4 {
+  return [
+    key,
+    state.seen,
+    state.lastSeen,
+    state.lastAsked,
+    state.lastProven,
+    priorToWire(state.prior),
+    state.strength,
+    state.lapses,
+  ];
 }
 
 /**
@@ -74,7 +81,7 @@ export function serialize(profile: Profile): string {
   const keys = (Object.keys(profile.units) as UnitKey[]).sort((a, b) =>
     a < b ? -1 : a > b ? 1 : 0,
   );
-  const units: WireEntryV3[] = new Array<WireEntryV3>(keys.length);
+  const units: WireRowV4[] = new Array<WireRowV4>(keys.length);
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i];
     // `noUncheckedIndexedAccess` types both lookups as possibly-undefined. Neither can miss — the
@@ -84,7 +91,7 @@ export function serialize(profile: Profile): string {
     if (key === undefined) continue;
     const state = profile.units[key];
     if (state === undefined) continue;
-    units[i] = [key, toWire(state)];
+    units[i] = toRow(key, state);
   }
 
   const wire: WireProfile = {
@@ -112,48 +119,59 @@ function isWholeNumber(v: unknown): v is number {
 }
 
 /**
- * Parse one stored unit.
+ * Parse one stored row into a unit.
  *
  * This is "parse, don't validate": it does not return a boolean and leave the caller holding
  * `unknown` — because then the caller casts, and the check evaporates. It returns the typed value,
  * so there is no way to hold a `UnitState` that was not checked.
+ *
+ * ⚠️ **EVERY POSITION IS CHECKED, and under v4 that is what stands between a shifted field and a
+ * silently wrong learner.** A named object announces its own mistakes — a missing `lastProven` is
+ * `undefined` and obvious. A positional row does not: a row one element short reads every field
+ * after the gap as its neighbour, and `lastAsked` arriving as `lastProven` is a plausible number
+ * that quietly changes what the scheduler believes. So the length is exact, not a minimum, and each
+ * slot is validated before it becomes a `UnitState`.
+ *
+ * The order is declared once on {@link WireRowV4}. Read this beside `toRow`; they are one format
+ * written twice and nothing else may know it.
  */
-function parseUnit(v: unknown): UnitState | undefined {
-  if (!isRecord(v)) return undefined;
+function parseRow(row: readonly unknown[]): UnitState | undefined {
+  // EXACT, not `>=`. A longer row is a newer format that reached here without a version bump, and
+  // guessing that the extra elements are ignorable is how a forward-compat bug becomes a data bug.
+  if (row.length !== WIRE_ROW_V4_LENGTH) return undefined;
 
-  // Every counter and every anchor. These arrive from the v2 migration when they were not in the
+  const [, seen, lastSeen, lastAsked, lastProven, prior, strength, lapses] = row;
+
+  // Every counter and every anchor. These arrive from the migrations when they were not in the
   // stored bytes, so by the time this runs they are always present — checked anyway, because this is
   // a trust boundary and "the migration must have run" is exactly the assumption that is false the
   // day one does not.
-  if (!isWholeNumber(v.seen)) return undefined;
-  if (!isWholeNumber(v.lastSeen)) return undefined;
-  if (!isWholeNumber(v.lastAsked)) return undefined;
-  if (!isWholeNumber(v.lastProven)) return undefined;
-  if (!isWholeNumber(v.lapses)) return undefined;
+  if (!isWholeNumber(seen)) return undefined;
+  if (!isWholeNumber(lastSeen)) return undefined;
+  if (!isWholeNumber(lastAsked)) return undefined;
+  if (!isWholeNumber(lastProven)) return undefined;
+  if (!isWholeNumber(lapses)) return undefined;
 
   // ⚠️ REJECT a non-whole rung, CLAMP an over-large one, and the asymmetry is deliberate. Corruption
   // must be named; but a blob written by a build whose `MAX_STRENGTH` was higher has to stay
   // readable, so that lowering the ceiling after a simulation sweep is a code change rather than a
   // wire bump. `clampStrength` is total, and its `Math.trunc` is unreachable here because the
   // whole-number check has already run.
-  if (!isWholeNumber(v.strength)) return undefined;
-  const strength = clampStrength(v.strength);
+  if (!isWholeNumber(strength)) return undefined;
 
   // `null` for no claim, a whole day number otherwise. `undefined` is NOT accepted as "no claim":
-  // a missing field means the migration did not run, which is a different fact from "never claimed"
+  // a missing slot means the migration did not run, which is a different fact from "never claimed"
   // and must not be silently rounded into it.
-  if (v.prior !== null && !isWholeNumber(v.prior)) return undefined;
-  const prior: Prior =
-    v.prior === null ? { kind: 'none' } : { kind: 'claimed', on: v.prior as Day };
+  if (prior !== null && !isWholeNumber(prior)) return undefined;
 
   return {
-    seen: v.seen,
-    lastSeen: v.lastSeen as Day,
-    lastAsked: v.lastAsked as Day,
-    lastProven: v.lastProven as Day,
-    prior,
-    strength,
-    lapses: v.lapses,
+    seen,
+    lastSeen: lastSeen as Day,
+    lastAsked: lastAsked as Day,
+    lastProven: lastProven as Day,
+    prior: prior === null ? { kind: 'none' } : { kind: 'claimed', on: prior as Day },
+    strength: clampStrength(strength),
+    lapses,
   };
 }
 
@@ -184,7 +202,7 @@ const MIGRATIONS: Readonly<Record<number, (input: unknown) => unknown>> = {
    * recoverable; under-drilling forever is not.
    *
    * Defensive throughout because the input is data written by code that no longer exists. Anything
-   * unrecognisable is passed through untouched, so `parseUnit` produces the `malformed` error with
+   * unrecognisable is passed through untouched, so `parseRow` produces the `malformed` error with
    * a unit key in it rather than this function throwing an unnamed exception at app launch.
    */
   1: (input: unknown): unknown => {
@@ -254,7 +272,7 @@ const MIGRATIONS: Readonly<Record<number, (input: unknown) => unknown>> = {
    *   and zero errs toward not flagging a stuck word that never was.
    *
    * Defensive throughout, like `MIGRATIONS[1]`: anything unrecognisable is passed through untouched
-   * so `parseUnit` produces a `malformed` error naming the offending key, rather than this function
+   * so `parseRow` produces a `malformed` error naming the offending key, rather than this function
    * throwing an unnamed exception at app launch.
    */
   2: (input: unknown): unknown => {
@@ -295,6 +313,51 @@ const MIGRATIONS: Readonly<Record<number, (input: unknown) => unknown>> = {
           ];
         }
         return entry;
+      }),
+    };
+  },
+
+  /**
+   * v3 → v4: the same seven values, as a flat positional row instead of a named object.
+   *
+   * ⚠️ **NOTHING IS INTERPRETED HERE.** Unlike its two predecessors this migration takes no
+   * decision — no field is invented, dropped, defaulted or re-derived. It is a pure re-encoding, so
+   * a v3 learner and a v4 learner with the same history produce byte-identical output after it runs.
+   * That is worth stating because it is what makes this the CHEAP kind of wire change: the two
+   * earlier steps each had a recoverability argument to make, and this one has none to make.
+   *
+   * Why re-encode at all: the seven field names were 73 bytes of pure repetition per unit, and
+   * measured on a 20,000-unit profile they were 60% of the file — 2.44 MB of which 0.98 MB was
+   * values. That file is written on every save and parsed before the first frame at launch. See
+   * {@link WireRowV4}.
+   *
+   * Defensive throughout, like both steps above: anything unrecognisable is passed through untouched
+   * so `parseRow` produces a `malformed` error naming the offending key, rather than this function
+   * throwing an unnamed exception on the app's launch path.
+   */
+  3: (input: unknown): unknown => {
+    if (!isRecord(input) || !Array.isArray(input.units)) return input;
+    const entries: unknown[] = input.units;
+    return {
+      ...input,
+      v: 4,
+      units: entries.map((entry: unknown): unknown => {
+        if (!Array.isArray(entry) || entry.length !== 2) return entry;
+        const [key, state] = entry as [unknown, unknown];
+        if (!isRecord(state)) return entry;
+        // Read positionally in exactly the order `WireRowV4` declares. Values are copied verbatim,
+        // INCLUDING ones that are absent or the wrong type — `parseRow` is the checker, and a
+        // migration that silently repaired a bad value would hide the corruption it should name.
+        return [
+          key,
+          state.seen,
+          state.lastSeen,
+          state.lastAsked,
+          state.lastProven,
+          state.prior,
+          state.strength,
+          state.lapses,
+        ];
       }),
     };
   },
@@ -366,10 +429,15 @@ export function deserialize(text: string): Decoded<Profile> {
 
   const units: Record<UnitKey, UnitState> = {};
   for (const entry of wire.units) {
-    if (!Array.isArray(entry) || entry.length !== 2) {
-      return fail('malformed', 'a unit entry is not a [key, state] pair');
+    if (!Array.isArray(entry)) {
+      return fail('malformed', 'a unit entry is not a row');
     }
-    const [key, value] = entry as [unknown, unknown];
+    // ⚠️ THE KEY IS READ AND CHECKED BEFORE THE ROW LENGTH IS, deliberately. A row of the wrong
+    // length is exactly what a mis-migrated or hand-edited profile produces, and the whole value of
+    // the error is that it NAMES the unit — so the name has to be recovered before the shape is
+    // rejected. Position 0 is the key in every version this format has had.
+    const row: readonly unknown[] = entry;
+    const key = row[0];
     if (typeof key !== 'string' || key.length === 0) {
       return fail('malformed', 'a unit entry has no key');
     }
@@ -401,7 +469,7 @@ export function deserialize(text: string): Decoded<Profile> {
     if (units[key] !== undefined) {
       return fail('malformed', `unit "${key}" appears more than once`);
     }
-    const state = parseUnit(value);
+    const state = parseRow(row);
     if (state === undefined) {
       return fail('malformed', `unit "${key}" has an unreadable state`);
     }

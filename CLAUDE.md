@@ -8,12 +8,19 @@ next. It must run unchanged under Hermes (React Native), Node, and a browser.
 (`serialize`/`deserialize`), language packs (`createPack`/`checkPack`), coverage, the scheduler
 (`plan`), and reporting (`summarize`). Read this file before adding the next piece.
 
-⚠️ **Wire v3 landed 2026-07-29 (ADR-0006) and it changed the shape of a unit.** A unit is a rung
-ladder (`strength: 0..6`, known at 2) with three anchors — `lastSeen ⊇ lastAsked ⊇ lastProven` —
-plus a `prior`. `Learning | Understood | Box | PROMOTE_AFTER_SUCCESSES` are **gone**; `Evidence` is a
-four-member union (`retrieval` / `exposure` / `help` / `claim`) instead of a record with
-`tested: boolean`; `PlanOptions.maxNew` is **required**. Anything you find that still talks about
-boxes or `tested` is archaeology.
+⚠️ **A unit is a rung ladder (ADR-0006, 2026-07-29):** `strength: 0..6`, known at 2, three anchors —
+`lastSeen ⊇ lastAsked ⊇ lastProven` — plus a `prior`. `Learning | Understood | Box |
+PROMOTE_AFTER_SUCCESSES` are **gone**; `Evidence` is a four-member union (`retrieval` / `exposure` /
+`help` / `claim`) instead of a record with `tested: boolean`; `PlanOptions.maxNew` is **required**.
+Anything you find that still talks about boxes or `tested` is archaeology.
+
+⚠️ **The WIRE is v4 (ADR-0007, 2026-07-30) and it is POSITIONAL.** Those same seven fields are
+stored as a flat row — `[key, seen, lastSeen, lastAsked, lastProven, prior, strength, lapses]` — not
+as a named object, because the names were 60% of the file (2.44 MB → 0.98 MB for a 20,000-unit
+learner, measured). **The order IS the format.** It is declared once on `WireRowV4`; `toRow` and
+`parseRow` in `core/persist.ts` are the only two functions allowed to know it, and they are written
+to be read side by side. **Append a field, never insert one.** `wire-v1.golden.test.ts` is now the
+executable specification of that order, so a reordering is a byte diff a human has to approve.
 
 ## The one rule
 
