@@ -10,6 +10,10 @@
  * The throw is unreachable if the types are honest. It exists for the case where they are not —
  * data deserialized from an older version, say.
  *
+ * ⚠️ Scores 0% on the mutation lane, permanently and correctly: the body is unreachable while the
+ * types are truthful, so nothing can pin its message. Do not "fix" that by asserting on an exception
+ * no correct program throws.
+ *
  * @module
  */
 export function assertNever(value: never, what: string): never {

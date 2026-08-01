@@ -3,7 +3,7 @@ import { deserialize, serialize } from '../core/persist.js';
 import { plan } from '../core/plan.js';
 import { createProfile } from '../core/profile.js';
 import { record } from '../core/record.js';
-import { applyStep } from '../internal/text.js';
+import { applyStep } from '../normalize/index.js';
 import type { Day } from '../model/index.js';
 import { parseUnitKey, unitKey, variety } from '../model/index.js';
 import type { NormalizeStep } from '../model/index.js';

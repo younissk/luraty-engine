@@ -9,7 +9,7 @@ import {
   type WireProfile,
   type WireRowV4,
 } from '../model/index.js';
-import { assertNever } from '../internal/assert.js';
+import { assertNever } from '../utils/index.js';
 
 /**
  * Turning a profile into bytes and back.

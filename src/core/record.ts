@@ -1,4 +1,4 @@
-import { assertNever } from '../internal/assert.js';
+import { assertNever } from '../utils/index.js';
 import type { Evidence } from '../model/index.js';
 import type { Day } from '../model/index.js';
 import type { Profile } from '../model/index.js';

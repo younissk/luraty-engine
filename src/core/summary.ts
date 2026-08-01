@@ -1,4 +1,4 @@
-import { assertNever } from '../internal/assert.js';
+import { assertNever } from '../utils/index.js';
 import { NEVER, parseUnitKey, type UnitKey } from '../model/index.js';
 import type { Profile } from '../model/index.js';
 import type { Summary, SummaryScope } from '../model/index.js';

@@ -1,4 +1,4 @@
-import { NORMALIZE_STEPS, applySteps, isNormalizeStep } from '../internal/text.js';
+import { NORMALIZE_STEPS, applySteps, isNormalizeStep } from '../normalize/index.js';
 import type { LanguagePack, Lemma, NormalizeStep, PackConfig, PackData } from '../model/index.js';
 import { variety } from '../model/index.js';
 import type { Decoded } from '../model/index.js';

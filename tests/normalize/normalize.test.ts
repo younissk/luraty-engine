@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { arabicText, frenchText } from '../../src/testing/alphabets.js';
 
-import { applyStep, applySteps } from '../../src/internal/text.js';
+import { applyStep, applySteps } from '../../src/normalize/index.js';
 
 /**
  * Character-level tests for the ICU-free transformations.
