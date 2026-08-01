@@ -30,6 +30,32 @@ describe('stripArabicDiacritics', () => {
     }
   });
 
+  it('removes every mark in the Quranic annotation block', () => {
+    // ⚠️ THE REGRESSION, measured 2026-08-01 on al-Baqarah 2:2. `هُدًۭى` carries U+06ED ARABIC SMALL
+    // LOW MEEM BETWEEN the tanween and the alef maksura. Before this range was included the mark
+    // survived normalisation, `key()` returned a string no lemma table contains, and a tokenizer
+    // built from the same character set split the word into two fragments — neither of them a word.
+    //
+    // Individually, because a range boundary off by one is exactly the mutation that survives an
+    // aggregate test.
+    for (let cp = 0x06d6; cp <= 0x06ed; cp++) {
+      const mark = String.fromCodePoint(cp);
+      expect(strip(`سوق${mark}`), `U+${cp.toString(16)}`).toBe('سوق');
+    }
+  });
+
+  it('leaves the letters on either side of an interior annotation mark joined', () => {
+    // The shape that actually broke: the mark sits INSIDE the word, not after it.
+    expect(strip('هُدًۭى')).toBe('هدى');
+  });
+
+  it('does not strip the letters immediately outside the block', () => {
+    // U+06D5 is ARABIC LETTER AE and U+06EE is a letter too. Widening the range by one in either
+    // direction deletes a letter, which no aggregate assertion would notice.
+    expect(strip('\u06d5')).toBe('\u06d5');
+    expect(strip('\u06ee')).toBe('\u06ee');
+  });
+
   it('removes the superscript alef and the Quranic marks', () => {
     expect(strip('سٰوق')).toBe('سوق');
     for (let cp = 0x0653; cp <= 0x0655; cp++) {
