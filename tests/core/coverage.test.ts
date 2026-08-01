@@ -8,8 +8,8 @@ import type { Profile } from '../../src/model/index.js';
 import { arabicPack, frenchPack } from '../../src/testing/packs.js';
 
 import { coverage } from '../../src/core/coverage.js';
-import { createProfile } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { createProfile } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 import { KNOWN_AT_STRENGTH } from '../../src/model/index.js';
 
 /**

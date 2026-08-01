@@ -1,55 +1,3 @@
-import { assertNever } from '../utils/index.js';
-import { NEVER, parseUnitKey, type UnitKey } from '../model/index.js';
-import type { Profile } from '../model/index.js';
-import type { Summary, SummaryScope } from '../model/index.js';
-import { effectiveStrength, isKnown, MAX_STRENGTH, type UnitState } from '../model/index.js';
-
-import { STUCK_AFTER_LAPSES } from './plan.js';
-
-/**
- * Reducing a learner to a number small enough to keep forever.
- *
- * @module
- */
-
-/**
- * Does this unit fall inside the scope being summarised?
- *
- * ⚠️ **EVERY SCOPE PARSES THE KEY, INCLUDING `'all'`**, and the reason is a law rather than tidiness.
- * `summarize` promises that the four per-skill scopes partition the profile exactly — nothing
- * double-counted, nothing dropped. `unitKey(d, v, '')` mints `"recognise:fr:"`, which `parseUnitKey`
- * rejects for having no word; `record` writes whatever key it is handed, so such a unit can reach a
- * profile. If `'all'` counted it and no skill scope could, the partition would silently be off by
- * one for every malformed key present.
- *
- * The alternative — having `'all'` return true unconditionally and calling the law approximate — was
- * rejected: an unaddressable unit is not a unit anybody can act on, so counting it in a headline
- * number is the worse error.
- */
-function inScope(key: UnitKey, scope: SummaryScope): boolean {
-  const parts = parseUnitKey(key);
-  if (parts === undefined) return false;
-  switch (scope.kind) {
-    case 'all':
-      return true;
-    case 'skill': {
-      // Matched on the PARSED parts rather than a string prefix. A prefix test would need the
-      // caller's variety to be free of colons — true today by construction, and exactly the kind of
-      // invariant that stops being true quietly.
-      return parts.direction === scope.direction && parts.variety === scope.variety;
-    }
-    default:
-      return assertNever(scope, 'SummaryScope');
-  }
-}
-
-/** Which of the three claim buckets this unit is in, if any. See {@link Summary.claimsRefuted}. */
-function claimBucket(state: UnitState): 'standing' | 'confirmed' | 'refuted' | undefined {
-  if (state.prior.kind !== 'claimed') return undefined;
-  if (state.lastAsked === NEVER) return 'standing';
-  return state.lastProven === NEVER ? 'refuted' : 'confirmed';
-}
-
 /**
  * Summarise a learner.
  *
@@ -59,7 +7,24 @@ function claimBucket(state: UnitState): 'standing' | 'confirmed' | 'refuted' | u
  *
  * Total: every scope has an honest answer, including "no units match", which reports zeros and a
  * `daysSinceProven` of the full span since the epoch.
+ *
+ * @module
  */
+
+import {
+  effectiveStrength,
+  isKnown,
+  MAX_STRENGTH,
+  NEVER,
+  type Profile,
+  type Summary,
+  type SummaryScope,
+  type UnitKey,
+} from '../../model/index.js';
+import { STUCK_AFTER_LAPSES } from '../plan.js';
+import { claimBucket } from './claimBucket.js';
+import { inScope } from './inScope.js';
+
 export function summarize(profile: Profile, scope: SummaryScope): Summary {
   const byStrength = [0, 0, 0, 0, 0, 0, 0];
   let units = 0;

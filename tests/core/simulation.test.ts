@@ -5,8 +5,8 @@ import { unitKey, variety, type Day, type UnitKey } from '../../src/model/index.
 import { arabicPack } from '../../src/testing/packs.js';
 
 import { coverage } from '../../src/core/coverage.js';
-import { advanceTo, createProfile, unitState } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { advanceTo, createProfile, unitState } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 import { isKnown, MAX_STRENGTH } from '../../src/model/index.js';
 
 /**

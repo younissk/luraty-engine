@@ -6,8 +6,8 @@ import { variety, type Day } from '../../src/model/index.js';
 import { arbEvidence as anyEvidence } from '../../src/testing/evidence.js';
 
 import { deserialize, serialize } from '../../src/core/persist.js';
-import { createProfile } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { createProfile } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 
 /**
  * The round-trip law, and the canonical-form law.

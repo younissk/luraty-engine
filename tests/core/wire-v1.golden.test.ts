@@ -5,8 +5,8 @@ import { PROFILE_SCHEMA_VERSION } from '../../src/model/index.js';
 import { isKnown, KNOWN_AT_STRENGTH, MAX_STRENGTH } from '../../src/model/index.js';
 
 import { deserialize, serialize } from '../../src/core/persist.js';
-import { advanceTo, createProfile, unitState } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { advanceTo, createProfile, unitState } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 
 /**
  * Every wire format this engine has ever written, frozen at the moment it stopped being current.

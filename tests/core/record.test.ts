@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { day, unitKey, variety, type Day, type UnitKey } from '../../src/model/index.js';
 import type { Evidence } from '../../src/model/index.js';
 
-import { createProfile, advanceTo, hasMet, unitState } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { createProfile, advanceTo, hasMet, unitState } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 import { isKnown, KNOWN_AT_STRENGTH, MAX_STRENGTH, STRENGTH_STEP } from '../../src/model/index.js';
 
 const AR = variety('ar-msa');

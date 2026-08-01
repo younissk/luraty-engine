@@ -4,8 +4,8 @@ import { unitKey, variety, type Day, type UnitKey } from '../../src/model/index.
 import { arabicPack, fixtures, frenchPack, germanPack } from '../../src/testing/packs.js';
 
 import { createPack } from '../../src/core/pack.js';
-import { createProfile, unitState } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { createProfile, unitState } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 import { isKnown } from '../../src/model/index.js';
 
 /**

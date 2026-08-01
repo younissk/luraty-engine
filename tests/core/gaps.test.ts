@@ -7,9 +7,9 @@ import { isKnown } from '../../src/model/index.js';
 
 import { coverage } from '../../src/core/coverage.js';
 import { plan } from '../../src/core/plan.js';
-import { advanceTo, createProfile } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
-import { summarize } from '../../src/core/summary.js';
+import { advanceTo, createProfile } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
+import { summarize } from '../../src/core/summary/index.js';
 import { arabicPack } from '../../src/testing/packs.js';
 
 /**

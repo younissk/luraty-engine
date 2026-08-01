@@ -1,11 +1,11 @@
-import { record } from '../core/record.js';
-import { createProfile } from '../core/profile.js';
+import { record } from '../core/record/index.js';
+import { createProfile } from '../core/profile/index.js';
 import type { Evidence } from '../model/index.js';
 import { unitKey, type Day, type Variety } from '../model/index.js';
 import type { LanguagePack, Lemma } from '../model/index.js';
 import type { Profile } from '../model/index.js';
 import { KNOWN_AT_STRENGTH } from '../model/index.js';
-import { vocabularyOf } from '../core/bulk.js';
+import { vocabularyOf } from '../core/bulk/index.js';
 
 /**
  * Building learners to simulate against.

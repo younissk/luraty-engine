@@ -4,12 +4,12 @@ import { unitKey, variety, type Day } from '../../src/model/index.js';
 import type { PackConfig } from '../../src/model/index.js';
 import { germanPack } from '../../src/testing/packs.js';
 
-import { vocabularyOf } from '../../src/core/bulk.js';
+import { vocabularyOf } from '../../src/core/bulk/index.js';
 import { createPack } from '../../src/core/pack.js';
 import { plan } from '../../src/core/plan.js';
 import { learner } from '../../src/core/learner.js';
-import { createProfile } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { createProfile } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 
 /**
  * The defaults, and the two things they are NOT allowed to do.

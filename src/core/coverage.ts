@@ -4,7 +4,7 @@ import type { LanguagePack, Lemma } from '../model/index.js';
 import type { Profile } from '../model/index.js';
 import { hasStandingClaim, isKnown } from '../model/index.js';
 
-import { unitState } from './profile.js';
+import { unitState } from './profile/index.js';
 
 /**
  * Measuring a text against what a learner knows.

@@ -78,8 +78,8 @@ describe('the sweep model agrees with the real fold', () => {
     // and bottomed at rung 1, so neither `Math.min(ceiling, …)` nor `Math.max(0, …)` ever fired —
     // the guard pinned the unclamped accumulation only, and a model whose ceiling disagreed with the
     // engine's would still have passed. Verified below by asserting both bounds are reached.
-    const { record } = await import('../../src/core/record.js');
-    const { createProfile } = await import('../../src/core/profile.js');
+    const { record } = await import('../../src/core/record/index.js');
+    const { createProfile } = await import('../../src/core/profile/index.js');
     const outcomes: ('known' | 'unknown')[] = [
       // Climb past the ceiling: eight successes against a ceiling of six.
       'known',

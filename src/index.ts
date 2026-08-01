@@ -112,7 +112,7 @@ export {
 // Pure transforms every host writes on day one. They are here because the same "split the frequency
 // list, key each word, drop empties and duplicates" loop was hand-written FIVE times in this repo
 // before it was published once.
-export { claimsFor, exposuresFor, keysFor, vocabularyOf, wordsIn } from './core/bulk.js';
+export { claimsFor, exposuresFor, keysFor, vocabularyOf, wordsIn } from './core/bulk/index.js';
 
 // ── The fluent handle, entirely optional ────────────────────────────────────────────────────────
 // Adds no power: every method delegates to a function above, and `learner.profile` is always
@@ -127,11 +127,11 @@ export { learner } from './core/learner.js';
 // "can she read more than in March?" is a subtraction of two of these. See `Summary` for why the
 // log lives on the host's side of the boundary, and for the obligation that creates.
 export type { Summary, SummaryScope } from './model/index.js';
-export { summarize } from './core/summary.js';
+export { summarize } from './core/summary/index.js';
 
 // ── Operations ──────────────────────────────────────────────────────────────────────────────────
-export { advanceTo, createProfile, hasMet, unitState } from './core/profile.js';
-export { record } from './core/record.js';
+export { advanceTo, createProfile, hasMet, unitState } from './core/profile/index.js';
+export { record } from './core/record/index.js';
 export { deserialize, serialize } from './core/persist.js';
 
 /**

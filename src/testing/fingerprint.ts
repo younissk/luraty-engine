@@ -1,8 +1,8 @@
 import { coverage } from '../core/coverage.js';
 import { deserialize, serialize } from '../core/persist.js';
 import { plan } from '../core/plan.js';
-import { createProfile } from '../core/profile.js';
-import { record } from '../core/record.js';
+import { createProfile } from '../core/profile/index.js';
+import { record } from '../core/record/index.js';
 import { applyStep } from '../normalize/index.js';
 import type { Day } from '../model/index.js';
 import { parseUnitKey, unitKey, variety } from '../model/index.js';

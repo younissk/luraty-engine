@@ -6,9 +6,9 @@ import { hasStandingClaim, UNMET } from '../../src/model/index.js';
 
 import { plan } from '../../src/core/plan.js';
 import { deserialize, serialize } from '../../src/core/persist.js';
-import { createProfile, unitState } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
-import { summarize } from '../../src/core/summary.js';
+import { createProfile, unitState } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
+import { summarize } from '../../src/core/summary/index.js';
 
 /**
  * Regressions for the defects an adversarial review found after wire v3 landed.

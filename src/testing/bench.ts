@@ -1,12 +1,12 @@
-import { vocabularyOf } from '../core/bulk.js';
+import { vocabularyOf } from '../core/bulk/index.js';
 import { checkPack } from '../core/checkPack.js';
 import { coverage } from '../core/coverage.js';
 import { createPack } from '../core/pack.js';
 import { deserialize, serialize } from '../core/persist.js';
 import { plan } from '../core/plan.js';
-import { createProfile } from '../core/profile.js';
-import { record } from '../core/record.js';
-import { summarize } from '../core/summary.js';
+import { createProfile } from '../core/profile/index.js';
+import { record } from '../core/record/index.js';
+import { summarize } from '../core/summary/index.js';
 import type { Evidence } from '../model/index.js';
 import { day, unitKey, variety, type Day, type UnitKey, type Variety } from '../model/index.js';
 import type { LanguagePack, Lemma, PackConfig, PackData } from '../model/index.js';

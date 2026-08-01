@@ -3,9 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { parseUnitKey, unitKey, variety, type Day } from '../../src/model/index.js';
 import { germanPack } from '../../src/testing/packs.js';
 
-import { claimsFor, exposuresFor, keysFor, vocabularyOf, wordsIn } from '../../src/core/bulk.js';
-import { createProfile, unitState } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import {
+  claimsFor,
+  exposuresFor,
+  keysFor,
+  vocabularyOf,
+  wordsIn,
+} from '../../src/core/bulk/index.js';
+import { createProfile, unitState } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 
 /**
  * The bulk helpers.

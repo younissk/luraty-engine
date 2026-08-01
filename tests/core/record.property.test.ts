@@ -10,8 +10,8 @@ import {
   MAX_STRENGTH,
 } from '../../src/model/index.js';
 
-import { createProfile, unitState } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { createProfile, unitState } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 
 /**
  * Laws, not examples.

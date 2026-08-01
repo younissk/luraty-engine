@@ -6,8 +6,8 @@ import { unitKey, variety, type Day, type UnitKey } from '../../src/model/index.
 import type { Profile } from '../../src/model/index.js';
 
 import { deserialize, serialize } from '../../src/core/persist.js';
-import { advanceTo, createProfile } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { advanceTo, createProfile } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 import { arbEvidence as anyEvidence } from '../../src/testing/evidence.js';
 
 /**

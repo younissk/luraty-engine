@@ -6,9 +6,9 @@ import { isKnown, KNOWN_AT_STRENGTH, MAX_STRENGTH } from '../../src/model/index.
 import { arbEvidence } from '../../src/testing/evidence.js';
 
 import { STUCK_AFTER_LAPSES } from '../../src/core/plan.js';
-import { createProfile } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
-import { summarize } from '../../src/core/summary.js';
+import { createProfile } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
+import { summarize } from '../../src/core/summary/index.js';
 
 /**
  * The snapshot the host persists and diffs.

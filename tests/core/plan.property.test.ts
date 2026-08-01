@@ -7,8 +7,8 @@ import type { Profile } from '../../src/model/index.js';
 
 import { DEFAULT_REVIEW_GAP_DAYS, plan } from '../../src/core/plan.js';
 import { deserialize, serialize } from '../../src/core/persist.js';
-import { advanceTo, createProfile } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { advanceTo, createProfile } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 import { isKnown, KNOWN_AT_STRENGTH } from '../../src/model/index.js';
 
 /**

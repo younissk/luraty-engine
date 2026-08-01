@@ -6,8 +6,8 @@ import type { Profile } from '../../src/model/index.js';
 import { PROFILE_SCHEMA_VERSION } from '../../src/model/index.js';
 
 import { deserialize, serialize } from '../../src/core/persist.js';
-import { advanceTo, createProfile, unitState } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { advanceTo, createProfile, unitState } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 import { isKnown } from '../../src/model/index.js';
 
 const AR = variety('ar-msa');

@@ -4,8 +4,8 @@ import type { Evidence } from '../../src/model/index.js';
 import { unitKey, variety, type Day, type UnitKey } from '../../src/model/index.js';
 
 import { OVER_ASK, plan, REASSESS_AFTER_DAYS, STUCK_AFTER_LAPSES } from '../../src/core/plan.js';
-import { createProfile } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
+import { createProfile } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
 
 /**
  * The corners of `plan()` that the example and property suites reach only by accident.

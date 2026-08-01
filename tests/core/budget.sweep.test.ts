@@ -4,9 +4,9 @@ import type { Evidence } from '../../src/model/index.js';
 import { unitKey, variety, type Day, type UnitKey } from '../../src/model/index.js';
 
 import { plan } from '../../src/core/plan.js';
-import { advanceTo, createProfile } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
-import { summarize } from '../../src/core/summary.js';
+import { advanceTo, createProfile } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
+import { summarize } from '../../src/core/summary/index.js';
 
 /**
  * Sweeping the new-material cap, and confronting ADR-0005 with it.

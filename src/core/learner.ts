@@ -6,13 +6,13 @@ import type { Profile } from '../model/index.js';
 import type { PlanOptions, Session } from '../model/index.js';
 import type { Summary, SummaryScope } from '../model/index.js';
 
-import { claimsFor, exposuresFor, keysFor, wordsIn } from './bulk.js';
+import { claimsFor, exposuresFor, keysFor, wordsIn } from './bulk/index.js';
 import { coverage } from './coverage.js';
 import { serialize } from './persist.js';
 import { plan } from './plan.js';
-import { advanceTo } from './profile.js';
-import { record } from './record.js';
-import { summarize } from './summary.js';
+import { advanceTo } from './profile/index.js';
+import { record } from './record/index.js';
+import { summarize } from './summary/index.js';
 
 /**
  * A fluent handle on one learner, for hosts that would rather not thread four arguments.

@@ -3,14 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { unitKey, variety, type Day } from '../../src/model/index.js';
 import { germanPack } from '../../src/testing/packs.js';
 
-import { vocabularyOf } from '../../src/core/bulk.js';
+import { vocabularyOf } from '../../src/core/bulk/index.js';
 import { coverage } from '../../src/core/coverage.js';
 import { learner } from '../../src/core/learner.js';
 import { serialize } from '../../src/core/persist.js';
 import { plan } from '../../src/core/plan.js';
-import { createProfile } from '../../src/core/profile.js';
-import { record } from '../../src/core/record.js';
-import { summarize } from '../../src/core/summary.js';
+import { createProfile } from '../../src/core/profile/index.js';
+import { record } from '../../src/core/record/index.js';
+import { summarize } from '../../src/core/summary/index.js';
 
 /**
  * The fluent handle.
