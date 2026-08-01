@@ -4,9 +4,9 @@ import { plan } from '../core/plan.js';
 import { createProfile } from '../core/profile.js';
 import { record } from '../core/record.js';
 import { applyStep } from '../internal/text.js';
-import type { Day } from '../model/ids.js';
-import { parseUnitKey, unitKey, variety } from '../model/ids.js';
-import type { NormalizeStep } from '../model/pack.js';
+import type { Day } from '../model/index.js';
+import { parseUnitKey, unitKey, variety } from '../model/index.js';
+import type { NormalizeStep } from '../model/index.js';
 
 import { arabicPack, frenchPack, germanPack } from './packs.js';
 

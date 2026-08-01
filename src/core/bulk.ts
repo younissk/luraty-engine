@@ -1,6 +1,6 @@
-import type { Claim, Exposure } from '../model/evidence.js';
-import { unitKey, type Day, type Direction, type UnitKey, type Variety } from '../model/ids.js';
-import type { LanguagePack, Lemma } from '../model/pack.js';
+import type { Claim, Exposure } from '../model/index.js';
+import { unitKey, type Day, type Direction, type UnitKey, type Variety } from '../model/index.js';
+import type { LanguagePack, Lemma } from '../model/index.js';
 
 /**
  * Doing one thing to many words.

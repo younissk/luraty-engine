@@ -1,8 +1,8 @@
 import { assertNever } from '../internal/assert.js';
-import { NEVER, parseUnitKey, type UnitKey } from '../model/ids.js';
-import type { Profile } from '../model/profile.js';
-import type { Summary, SummaryScope } from '../model/summary.js';
-import { effectiveStrength, isKnown, MAX_STRENGTH, type UnitState } from '../model/unit.js';
+import { NEVER, parseUnitKey, type UnitKey } from '../model/index.js';
+import type { Profile } from '../model/index.js';
+import type { Summary, SummaryScope } from '../model/index.js';
+import { effectiveStrength, isKnown, MAX_STRENGTH, type UnitState } from '../model/index.js';
 
 import { STUCK_AFTER_LAPSES } from './plan.js';
 

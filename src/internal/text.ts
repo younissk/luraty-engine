@@ -1,4 +1,4 @@
-import type { NormalizeStep } from '../model/pack.js';
+import type { NormalizeStep } from '../model/index.js';
 import { assertNever } from './assert.js';
 
 /**

@@ -1,6 +1,6 @@
-import type { Day, UnitKey } from '../model/ids.js';
-import type { Profile } from '../model/profile.js';
-import { UNMET, type UnitState } from '../model/unit.js';
+import type { Day, UnitKey } from '../model/index.js';
+import type { Profile } from '../model/index.js';
+import { UNMET, type UnitState } from '../model/index.js';
 
 /**
  * Creating and moving a profile through time.

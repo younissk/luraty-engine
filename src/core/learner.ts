@@ -1,10 +1,10 @@
-import type { Coverage, CoverageQuery } from '../model/coverage.js';
-import type { Evidence, Outcome } from '../model/evidence.js';
-import type { Day, Direction, UnitKey, Variety } from '../model/ids.js';
-import type { LanguagePack } from '../model/pack.js';
-import type { Profile } from '../model/profile.js';
-import type { PlanOptions, Session } from '../model/session.js';
-import type { Summary, SummaryScope } from '../model/summary.js';
+import type { Coverage, CoverageQuery } from '../model/index.js';
+import type { Evidence, Outcome } from '../model/index.js';
+import type { Day, Direction, UnitKey, Variety } from '../model/index.js';
+import type { LanguagePack } from '../model/index.js';
+import type { Profile } from '../model/index.js';
+import type { PlanOptions, Session } from '../model/index.js';
+import type { Summary, SummaryScope } from '../model/index.js';
 
 import { claimsFor, exposuresFor, keysFor, wordsIn } from './bulk.js';
 import { coverage } from './coverage.js';

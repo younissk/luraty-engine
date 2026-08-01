@@ -1,6 +1,6 @@
 import { createPack } from '../core/pack.js';
-import { variety } from '../model/ids.js';
-import type { LanguagePack, PackConfig, PackData } from '../model/pack.js';
+import { variety } from '../model/index.js';
+import type { LanguagePack, PackConfig, PackData } from '../model/index.js';
 
 /**
  * Small but genuine language packs, for tests.

@@ -7,10 +7,10 @@ import { plan } from '../core/plan.js';
 import { createProfile } from '../core/profile.js';
 import { record } from '../core/record.js';
 import { summarize } from '../core/summary.js';
-import type { Evidence } from '../model/evidence.js';
-import { day, unitKey, variety, type Day, type UnitKey, type Variety } from '../model/ids.js';
-import type { LanguagePack, Lemma, PackConfig, PackData } from '../model/pack.js';
-import type { Profile } from '../model/profile.js';
+import type { Evidence } from '../model/index.js';
+import { day, unitKey, variety, type Day, type UnitKey, type Variety } from '../model/index.js';
+import type { LanguagePack, Lemma, PackConfig, PackData } from '../model/index.js';
+import type { Profile } from '../model/index.js';
 
 import { fixtures, germanPack } from './packs.js';
 

@@ -1,7 +1,7 @@
 import { NORMALIZE_STEPS, applySteps, isNormalizeStep } from '../internal/text.js';
-import type { LanguagePack, Lemma, NormalizeStep, PackConfig, PackData } from '../model/pack.js';
-import { variety } from '../model/ids.js';
-import type { Decoded } from '../model/wire.js';
+import type { LanguagePack, Lemma, NormalizeStep, PackConfig, PackData } from '../model/index.js';
+import { variety } from '../model/index.js';
+import type { Decoded } from '../model/index.js';
 
 /**
  * Building a language pack from configuration and data.

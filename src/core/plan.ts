@@ -1,6 +1,6 @@
-import { COVERAGE_BAND } from '../model/coverage.js';
-import { NEVER, type Day, type UnitKey } from '../model/ids.js';
-import type { Profile } from '../model/profile.js';
+import { COVERAGE_BAND } from '../model/index.js';
+import { NEVER, type Day, type UnitKey } from '../model/index.js';
+import type { Profile } from '../model/index.js';
 import type {
   ContentRequest,
   PlanOptions,
@@ -8,8 +8,8 @@ import type {
   Session,
   SessionItem,
   Why,
-} from '../model/session.js';
-import { isKnown, type UnitState } from '../model/unit.js';
+} from '../model/index.js';
+import { isKnown, type UnitState } from '../model/index.js';
 
 /**
  * Deciding what a learner should do next.

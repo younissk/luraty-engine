@@ -1,8 +1,8 @@
 import { assertNever } from '../internal/assert.js';
-import type { Evidence } from '../model/evidence.js';
-import type { Day } from '../model/ids.js';
-import type { Profile } from '../model/profile.js';
-import { clampStrength, STRENGTH_STEP, UNMET, type Prior, type UnitState } from '../model/unit.js';
+import type { Evidence } from '../model/index.js';
+import type { Day } from '../model/index.js';
+import type { Profile } from '../model/index.js';
+import { clampStrength, STRENGTH_STEP, UNMET, type Prior, type UnitState } from '../model/index.js';
 
 /**
  * Folding evidence into a profile.
