@@ -88,6 +88,29 @@ export const EXPOSURE_CREDIT_DAYS = 2;
 export const CLAIMED_REVIEW_GAP_MULTIPLIER = 10;
 
 /**
+ * How many days of extra priority a GLOSS TAP earns a unit she does not yet know.
+ *
+ * ⚠️ **THE MIRROR OF {@link EXPOSURE_CREDIT_DAYS}, AND IT POINTS THE OTHER WAY** — which is the whole
+ * idea. Seeing a word you already know is evidence it is still in circulation, so it waits. Tapping
+ * a gloss on a word you do NOT know is the opposite kind of news: you met it, you wanted it, and you
+ * could not produce it. That is the best possible moment to drill it.
+ *
+ * ⚠️ **BECAUSE THE LOOKUP IS WHERE THE LEARNING HAPPENS** (ADR-0012). Meta-analysis of 42 studies
+ * and 3,802 participants: glossed reading teaches 45.3% of encountered words immediately and 33.4%
+ * after a delay, against 26.6% and 19.8% unglossed. Looking a word up predicts receptive vocabulary
+ * knowledge; guessing from context does not. And it takes on the order of **14 encounters** for a
+ * word to stick from reading — which is precisely what a drill queue is for. The tap is the hand-off
+ * from the reading lane to the retrieval lane, and this constant is the hand-off.
+ *
+ * ⚠️ **IT IS PRIORITY, NOT PROOF, NOT ELIGIBILITY.** A tapped unit is below the known rung by
+ * definition of having been tapped, so the review gap never applied to it and it was always
+ * eligible. All this changes is where it lands in an over-subscribed session.
+ *
+ * ⚠️ PROVISIONAL, like the three constants above it, and it should be swept with them (#83).
+ */
+export const HELP_PRIORITY_DAYS = 4;
+
+/**
  * How many more units to name than the session will use.
  *
  * Not a learning constant — an engineering one, about hosts. A content store will not have an
@@ -129,15 +152,27 @@ function attendedOn(state: UnitState): Day {
 }
 
 /**
- * {@link attendedOn}, plus a discounted credit for having simply been SEEN.
+ * {@link attendedOn}, adjusted for what happened while she was READING.
  *
  * ⚠️ **USED FOR ORDERING AND REPORTING, NEVER FOR ELIGIBILITY.** The gap check below runs on
- * `attendedOn`, so a sighting can defer a review and can never cancel one. See
- * {@link EXPOSURE_CREDIT_DAYS}.
+ * `attendedOn`, so nothing here can defer a review out of existence or force one that is not due.
  *
- * A unit never seen keeps `NEVER`, so nothing about a fresh profile changes.
+ * ⚠️ **IT MOVES IN BOTH DIRECTIONS, AND THE SIGN DEPENDS ON WHETHER SHE KNOWS THE WORD.** That
+ * asymmetry is the design rather than a special case:
+ *
+ * - **known, and seen** → LATER. Reading it is evidence it is still in circulation, so the scarce
+ *   drill budget goes to words she is not meeting anyway. {@link EXPOSURE_CREDIT_DAYS}.
+ * - **not known, and she tapped the gloss** → EARLIER. She met it, wanted it, and could not produce
+ *   it. {@link HELP_PRIORITY_DAYS}.
+ *
+ * ⚠️ **A PLAIN SIGHTING OF AN UNKNOWN WORD MOVES NOTHING**, deliberately. She may have read straight
+ * past it without noticing she did not know it; the tap is what makes it a signal. That distinction
+ * is exactly why `lastHelped` had to become a field — before it, `help` and `exposure` differed only
+ * by a rung penalty, and removing that penalty would have made them the same event.
+ *
+ * A unit never seen and never helped keeps `NEVER`, so nothing about a fresh profile changes.
  */
-function engagedOn(state: UnitState, credit: number): Day {
+function engagedOn(state: UnitState, credit: number, helpBonus: number): Day {
   const attended = attendedOn(state);
 
   // ⚠️ **KNOWN UNITS ONLY, and this restriction is the whole correctness of the idea.**
@@ -151,6 +186,25 @@ function engagedOn(state: UnitState, credit: number): Day {
   // in circulation, and the scarce drill budget is better spent on words she is not meeting anyway.
   // Same line the review gap already draws: below the known rung a unit is being ACQUIRED, at or
   // above it a unit is being MAINTAINED, and only maintenance can be bought with a sighting.
+  // ⚠️ **AN UNCONSUMED TAP OUTRANKS EVERYTHING ELSE THIS FUNCTION KNOWS, INCLUDING ON A KNOWN
+  // WORD** — and the first version of this got that wrong in a way worth recording. It gated the
+  // bonus on `!isKnown`, mirroring the exposure credit. But `help` also moves `lastSeen`, so a tap
+  // on a word the ledger calls KNOWN fell through to the credit below and pushed it AWAY. She told
+  // us she could not read a word and we answered by drilling it less.
+  //
+  // A tap beats the ledger. If she looked it up, she does not have it, whatever the rung says.
+  //
+  // ⚠️ **`> attended` RATHER THAN `!== NEVER`, so the tap is CONSUMED.** The bonus lasts until the
+  // word is next asked; after that `attendedOn` has moved past it and the ordinary rules resume. A
+  // permanent offset would keep a word tapped once a year ago ahead of one tapped yesterday.
+  if (state.lastHelped > attended) {
+    const boosted = (attended - helpBonus) as Day;
+    // ⚠️ Floored at NEVER. A never-asked unit anchors at 0 — the maximum possible wait — and letting
+    // a tapped unit go below it would put one word she looked up ahead of everything she has never
+    // met, for good.
+    return boosted > NEVER ? boosted : NEVER;
+  }
+
   if (!isKnown(state)) return attended;
 
   if (state.lastSeen === NEVER) return attended;
@@ -233,6 +287,7 @@ export function plan(profile: Profile, options: PlanOptions): Session {
   const maxItems = clamp(options.maxItems, 0);
   const gap = clamp(options.reviewGapDays, DEFAULT_REVIEW_GAP_DAYS);
   const credit = clamp(options.exposureCreditDays, EXPOSURE_CREDIT_DAYS);
+  const helpBonus = clamp(options.helpPriorityDays, HELP_PRIORITY_DAYS);
   // Clamped to at least 1, unlike the other two. A multiplier of 0 would make a claimed unit due
   // FOREVER — the opposite of what every caller passing it could possibly mean — and `clamp`'s
   // floor is 0. See {@link PlanOptions.claimedGapMultiplier}.
@@ -285,7 +340,7 @@ export function plan(profile: Profile, options: PlanOptions): Session {
     // Clamped at 0 because `advanceTo` refuses to move a profile backwards but `options.day` is the
     // host's own number and may be behind `profile.day`. A negative wait would sort a unit as if it
     // were fresher than one attended today.
-    const daysWaiting = Math.max(0, day - engagedOn(state, credit));
+    const daysWaiting = Math.max(0, day - engagedOn(state, credit, helpBonus));
 
     // ⚠️ THE GAP RUNS ON THE STRICT ANCHOR, NOT ON `daysWaiting`, and the difference is the whole
     // safety argument for exposure credit. A unit she reads daily keeps a small `daysWaiting` and

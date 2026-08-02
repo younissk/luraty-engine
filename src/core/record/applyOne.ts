@@ -60,15 +60,24 @@ export function applyOne(state: UnitState, evidence: Evidence): UnitState {
       };
 
     case 'help':
-      // She asked. That is a real negative signal and a weaker one than failing a retrieval — and it
-      // is not a lapse, because asking for help is the right thing to do. `lastAsked` does NOT move:
-      // nobody tested her, so the scheduler has no more reason to consider this word attended to
-      // than if she had read straight past it.
+      // ⚠️ **IT NO LONGER COSTS A RUNG, AND THE OLD PENALTY WAS BACKWARDS** (ADR-0012). It read the
+      // tap as "she failed to know this", which is true and is the least interesting thing about it.
+      // Meta-analysis of 42 studies: glossed reading teaches 45.3% of encountered words against
+      // 26.6% unglossed, and looking a word up predicts receptive vocabulary knowledge where
+      // guessing from context does not. A gloss tap is the most productive thing a learner does
+      // while reading, and the engine was charging her for it.
+      //
+      // ⚠️ **IT STILL PROVES NOTHING EITHER.** No rung moves in either direction; ADR-0003's rule
+      // that only retrieval proves is untouched and `known` still means proven. What the tap buys is
+      // a place in tomorrow's queue — `plan`'s `engagedOn` reads `lastHelped`.
+      //
+      // `lastAsked` does NOT move: nobody tested her, so the scheduler has no more reason to
+      // consider this word attended to than if she had read straight past it.
       return {
         ...state,
         seen: state.seen + 1,
         lastSeen: later(state.lastSeen, evidence.day),
-        strength: step(state, -STRENGTH_STEP.missHelp),
+        lastHelped: later(state.lastHelped, evidence.day),
       };
 
     case 'claim':

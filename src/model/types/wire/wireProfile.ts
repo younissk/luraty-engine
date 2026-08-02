@@ -4,6 +4,6 @@
  * @module
  */
 
-import type { WireProfileV4 } from './wireProfileV4.js';
+import type { WireProfileV5 } from './wireProfileV5.js';
 
-export type WireProfile = WireProfileV4;
+export type WireProfile = WireProfileV5;

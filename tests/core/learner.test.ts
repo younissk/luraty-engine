@@ -180,12 +180,16 @@ describe('help() — the method the mutation lane found nobody called', () => {
       .answer('haus', 'known', D(2))
       .answer('haus', 'known', D(3));
 
-  it('costs exactly one rung', () => {
+  it('costs no rung at all, and stamps the anchor that earns priority', () => {
+    // ⚠️ INVERTED 2026-08-02 (ADR-0012). This asserted `3 -> 2`: a tap cost one rung. The evidence
+    // says a gloss tap is the most productive thing a learner does while reading, so it now costs
+    // nothing and instead moves the word toward the front of tomorrow's queue.
     const before = proven();
     const after = before.help('haus', D(4));
     const key = unitKey('recognise', DE, 'haus');
     expect(before.profile.units[key]?.strength).toBe(3);
-    expect(after.profile.units[key]?.strength).toBe(2);
+    expect(after.profile.units[key]?.strength).toBe(3);
+    expect(after.profile.units[key]?.lastHelped).toBe(4);
   });
 
   it('is not a lapse — asking for the gloss is the right thing to do', () => {

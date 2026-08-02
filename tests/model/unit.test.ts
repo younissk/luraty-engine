@@ -107,6 +107,7 @@ describe('UNMET', () => {
     expect(UNMET).toEqual({
       seen: 0,
       lastSeen: 0,
+      lastHelped: 0,
       lastAsked: 0,
       lastProven: 0,
       prior: { kind: 'none' },

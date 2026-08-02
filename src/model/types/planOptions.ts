@@ -109,6 +109,15 @@ export type PlanOptions = {
   readonly claimedGapMultiplier?: number;
 
   /**
+   * How many days of extra priority a gloss tap earns a unit below the known rung. Defaults to
+   * `HELP_PRIORITY_DAYS`. `0` turns the hand-off off, restoring pre-2026-08-02 ordering.
+   *
+   * ⚠️ It buys ORDER, never eligibility or proof — a tapped unit is below the known rung by
+   * definition, so the review gap never applied to it and it was already eligible every day.
+   */
+  readonly helpPriorityDays?: number;
+
+  /**
    * Which units to prefer when two have waited exactly the same number of days.
    *
    * ⚠️ WHY THIS EXISTS. Ties are not an edge case — they are the normal case. A learner who was

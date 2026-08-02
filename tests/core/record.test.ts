@@ -33,11 +33,15 @@ const fresh = () => createProfile('ar', D(1));
 describe('record', () => {
   it('starts a unit at rung zero when the learner asks for help with it', () => {
     // `ev(..., 'unknown', false, ...)` is a gloss tap: she met the word and asked. It mints the unit,
-    // costs a rung it does not have, and proves nothing.
+    // stamps `lastHelped`, and proves nothing.
     const p = record(fresh(), [ev(suuq, 'unknown', false, 1)]);
     expect(unitState(p, suuq)).toEqual({
       seen: 1,
       lastSeen: 1,
+      // ⚠️ ADDED 2026-08-02 (ADR-0012). Before `lastHelped` existed, a gloss tap and a passive
+      // sighting produced the same state apart from a rung penalty — so removing that penalty would
+      // have made two of the four `Evidence` members indistinguishable once recorded.
+      lastHelped: 1,
       // Asking is not being asked, so the scheduling anchor stays at NEVER.
       lastAsked: 0,
       // Failing is not proving. The trust anchor stays at NEVER too.
@@ -117,16 +121,28 @@ describe('record', () => {
     // learner tapping a gloss while reading — demoted an understood unit outright and zeroed its
     // streak. Four months of proof, erased by a tap, with no test covering it.
     //
-    // Asking for help is a real negative signal and a WEAKER one than failing a retrieval. It costs
-    // one rung and is not a lapse: she did the right thing.
+    // ⚠️ **THE ASSERTION INVERTED ON 2026-08-02 (ADR-0012), AND THE OLD ONE IS KEPT HERE BECAUSE IT
+    // WAS REASONABLE.** It read: "asking for help is a real negative signal and a WEAKER one than
+    // failing a retrieval. It costs one rung." — `MAX_STRENGTH - STRENGTH_STEP.missHelp`.
+    //
+    // That reads the tap as "she failed to know this", which is true and is the least interesting
+    // thing about it. Meta-analysis of 42 studies and 3,802 participants: glossed reading teaches
+    // 45.3% of encountered words against 26.6% unglossed, and looking a word up predicts receptive
+    // vocabulary knowledge where guessing from context does not. The tap is where the learning
+    // happens, and the engine was charging her a rung for it.
+    //
+    // The bug this test was written for is UNCHANGED and still unwritable: a tap must never demote.
+    // It now costs nothing at all rather than costing less than a failure.
     let p = fresh();
     for (let d = 1; d <= 6; d++) p = record(p, [ev(suuq, 'known', true, d)]);
     p = record(p, [{ kind: 'help', unit: suuq, day: D(30) }]);
 
     const s = unitState(p, suuq);
-    expect(s.strength).toBe(MAX_STRENGTH - STRENGTH_STEP.missHelp);
+    expect(s.strength).toBe(MAX_STRENGTH);
     expect(isKnown(s)).toBe(true);
     expect(s.lapses).toBe(0);
+    // And it stamps the anchor that earns it a place in tomorrow's queue.
+    expect(s.lastHelped).toBe(30);
     // And it is not an ask, so the scheduler has no more reason to consider the word attended to
     // than if she had read straight past it.
     expect(s.lastAsked).toBe(6);
@@ -162,6 +178,7 @@ describe('record', () => {
     expect(unitState(p, suuq)).toEqual({
       seen: 0,
       lastSeen: 0,
+      lastHelped: 0,
       lastAsked: 0,
       lastProven: 0,
       prior: { kind: 'none' },

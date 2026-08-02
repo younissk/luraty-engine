@@ -5,6 +5,7 @@ import { day, unitKey, variety, type Day, type UnitKey } from '../../src/model/i
 import type { Profile } from '../../src/model/index.js';
 import { PROFILE_SCHEMA_VERSION } from '../../src/model/index.js';
 
+import { NEVER } from '../../src/model/index.js';
 import { deserialize, serialize } from '../../src/core/persist.js';
 import { advanceTo, createProfile, unitState } from '../../src/core/profile/index.js';
 import { record } from '../../src/core/record/index.js';
@@ -209,6 +210,10 @@ describe('deserialize — never throws', () => {
         [colonised]: {
           seen: 1,
           lastSeen: D(5),
+          // ⚠️ `NEVER`, not `D(0)` — this file's `D` is `day(n)!` and `day(0)` is `undefined`,
+          // because day 0 is the engine's reserved "never". Writing `D(0)` puts `undefined` in the
+          // row and `parseRow` correctly refuses it.
+          lastHelped: NEVER,
           lastAsked: D(1),
           lastProven: D(1),
           prior: { kind: 'none' },
