@@ -10,14 +10,14 @@
 // persistence, language packs, coverage, and planning.
 
 // ── Identifiers ─────────────────────────────────────────────────────────────────────────────────
-export type { Day, Direction, UnitKey, UnitParts, Variety } from './model/ids.js';
-export { DIRECTIONS, day, parseUnitKey, unitKey, variety } from './model/ids.js';
+export type { Day, Direction, UnitKey, UnitParts, Variety } from './model/index.js';
+export { DIRECTIONS, day, parseUnitKey, unitKey, variety } from './model/index.js';
 
 // ── What the engine believes ────────────────────────────────────────────────────────────────────
 // One flat shape per unit, plus a rung ladder. `Learning | Understood | Box` are GONE: under a
 // ladder the box is derived (`strength >= KNOWN_AT_STRENGTH`), and storing a derived value is how
 // two sources of one truth get out of step.
-export type { Prior, Strength, UnitState } from './model/unit.js';
+export type { Prior, Strength, UnitState } from './model/index.js';
 export {
   effectiveStrength,
   hasStandingClaim,
@@ -25,8 +25,8 @@ export {
   KNOWN_AT_STRENGTH,
   MAX_STRENGTH,
   STRENGTH_STEP,
-} from './model/unit.js';
-export type { Profile } from './model/profile.js';
+} from './model/index.js';
+export type { Profile } from './model/index.js';
 
 // ── What changes it ─────────────────────────────────────────────────────────────────────────────
 // A four-member union on what the LEARNER did — proved it, met it, asked for help, or was said to
@@ -40,7 +40,7 @@ export type {
   Help,
   Outcome,
   Retrieval,
-} from './model/evidence.js';
+} from './model/index.js';
 
 // ── Language packs ──────────────────────────────────────────────────────────────────────────────
 // The engine knows no language. Everything language-specific arrives through this contract, and a
@@ -57,7 +57,7 @@ export type {
   PackConfig,
   PackData,
   TokenizeConfig,
-} from './model/pack.js';
+} from './model/index.js';
 export { createPack } from './core/pack.js';
 
 // Conformance checks for a pack, run against REAL data at load time. No unit test can reach the
@@ -72,20 +72,20 @@ export { checkPack } from './core/checkPack.js';
 //
 // Note the asymmetry that the shared type cannot express: `createPack` only ever fails as
 // `'malformed'`. The other three kinds are about stored bytes and cannot arise from a pack config.
-export type { Decoded, DecodeError, DecodeErrorKind } from './model/wire.js';
+export type { Decoded, DecodeError, DecodeErrorKind } from './model/index.js';
 
 // ── Persistence ─────────────────────────────────────────────────────────────────────────────────
 // `deserialize` runs at app launch against data written by an older build, so a throw there is a
 // learner whose app will not open. It returns a result instead, always.
-export { PROFILE_SCHEMA_VERSION } from './model/wire.js';
+export { PROFILE_SCHEMA_VERSION } from './model/index.js';
 
 // ── Coverage ────────────────────────────────────────────────────────────────────────────────────
 // How much of a text this learner knows, against the 95–98% band (ADR-0003 invariant 1). The band
 // constants are exported because a host has to be able to ask for content long enough to classify:
 // the engine cannot fetch anything, so if nobody carries `minTokens` outward, every passage arrives
 // too short and the invariant has no purchase on the product.
-export type { Band, Coverage, CoverageQuery } from './model/coverage.js';
-export { COVERAGE_BAND } from './model/coverage.js';
+export type { Band, Coverage, CoverageQuery } from './model/index.js';
+export { COVERAGE_BAND } from './model/index.js';
 export { coverage } from './core/coverage.js';
 
 // ── Planning ────────────────────────────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ export type {
   Session,
   SessionItem,
   Why,
-} from './model/session.js';
+} from './model/index.js';
 export {
   DEFAULT_REVIEW_GAP_DAYS,
   OVER_ASK,
@@ -112,7 +112,7 @@ export {
 // Pure transforms every host writes on day one. They are here because the same "split the frequency
 // list, key each word, drop empties and duplicates" loop was hand-written FIVE times in this repo
 // before it was published once.
-export { claimsFor, exposuresFor, keysFor, vocabularyOf, wordsIn } from './core/bulk.js';
+export { claimsFor, exposuresFor, keysFor, vocabularyOf, wordsIn } from './core/bulk/index.js';
 
 // ── The fluent handle, entirely optional ────────────────────────────────────────────────────────
 // Adds no power: every method delegates to a function above, and `learner.profile` is always
@@ -126,12 +126,12 @@ export { learner } from './core/learner.js';
 // The engine stores no history. `summarize` is a fixed-size snapshot the HOST persists and diffs —
 // "can she read more than in March?" is a subtraction of two of these. See `Summary` for why the
 // log lives on the host's side of the boundary, and for the obligation that creates.
-export type { Summary, SummaryScope } from './model/summary.js';
-export { summarize } from './core/summary.js';
+export type { Summary, SummaryScope } from './model/index.js';
+export { summarize } from './core/summary/index.js';
 
 // ── Operations ──────────────────────────────────────────────────────────────────────────────────
-export { advanceTo, createProfile, hasMet, unitState } from './core/profile.js';
-export { record } from './core/record.js';
+export { advanceTo, createProfile, hasMet, unitState } from './core/profile/index.js';
+export { record } from './core/record/index.js';
 export { deserialize, serialize } from './core/persist.js';
 
 /**

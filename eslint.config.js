@@ -34,8 +34,10 @@ export default tseslint.config(
   // no longer live in this package. If an exemption ever feels necessary in here, that is the signal
   // that something has landed on the wrong side of the boundary — move it out, don't exempt it.
   {
+    // ⚠️ `src/**` ONLY, and it no longer needs an `ignores` for tests: since ADR-0009 the suites
+    // live in a top-level `tests/` tree, so `src/**` is exactly the shipping code. If a `.test.ts`
+    // ever appears under `src/` again these rules will apply to it, which is the right answer.
     files: ['src/**/*.ts'],
-    ignores: ['src/**/*.test.ts'],
     rules: {
       'no-restricted-syntax': [
         'error',
@@ -117,7 +119,7 @@ export default tseslint.config(
   //
   // Note this is only about *declaration style*. Everything else in stylisticTypeChecked stays on.
   {
-    files: ['src/**/*.ts'],
+    files: ['src/**/*.ts', 'tests/**/*.ts'],
     rules: {
       '@typescript-eslint/consistent-type-definitions': 'off',
 
@@ -147,7 +149,7 @@ export default tseslint.config(
   // loudly, which is exactly what you want from a fixture. In `src/` the ban stands: there the
   // input really is untrusted, and `!` would be a lie.
   {
-    files: ['src/**/*.test.ts'],
+    files: ['tests/**/*.ts'],
     rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
   },
 

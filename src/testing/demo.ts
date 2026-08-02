@@ -1,13 +1,13 @@
 import { coverage } from '../core/coverage.js';
 import { plan } from '../core/plan.js';
-import { advanceTo, createProfile } from '../core/profile.js';
-import { record } from '../core/record.js';
-import type { Evidence } from '../model/evidence.js';
-import { variety, type Day, type UnitKey } from '../model/ids.js';
-import type { LanguagePack } from '../model/pack.js';
-import type { Profile } from '../model/profile.js';
-import { isKnown } from '../model/unit.js';
-import { exposuresFor, wordsIn } from '../core/bulk.js';
+import { advanceTo, createProfile } from '../core/profile/index.js';
+import { record } from '../core/record/index.js';
+import type { Evidence } from '../model/index.js';
+import { variety, type Day, type UnitKey } from '../model/index.js';
+import type { LanguagePack } from '../model/index.js';
+import type { Profile } from '../model/index.js';
+import { isKnown } from '../model/index.js';
+import { exposuresFor, wordsIn } from '../core/bulk/index.js';
 
 import {
   beginner,

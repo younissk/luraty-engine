@@ -1,6 +1,6 @@
-import { isUnitKey, type Day, type UnitKey } from '../model/ids.js';
-import type { Profile } from '../model/profile.js';
-import { clampStrength, KNOWN_AT_STRENGTH, type Prior, type UnitState } from '../model/unit.js';
+import { isUnitKey, type Day, type UnitKey } from '../model/index.js';
+import type { Profile } from '../model/index.js';
+import { clampStrength, KNOWN_AT_STRENGTH, type Prior, type UnitState } from '../model/index.js';
 import {
   PROFILE_SCHEMA_VERSION,
   WIRE_ROW_V4_LENGTH,
@@ -8,8 +8,8 @@ import {
   type DecodeError,
   type WireProfile,
   type WireRowV4,
-} from '../model/wire.js';
-import { assertNever } from '../internal/assert.js';
+} from '../model/index.js';
+import { assertNever } from '../utils/index.js';
 
 /**
  * Turning a profile into bytes and back.

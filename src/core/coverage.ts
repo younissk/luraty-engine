@@ -1,10 +1,10 @@
-import { COVERAGE_BAND, type Band, type Coverage, type CoverageQuery } from '../model/coverage.js';
-import { unitKey } from '../model/ids.js';
-import type { LanguagePack, Lemma } from '../model/pack.js';
-import type { Profile } from '../model/profile.js';
-import { hasStandingClaim, isKnown } from '../model/unit.js';
+import { COVERAGE_BAND, type Band, type Coverage, type CoverageQuery } from '../model/index.js';
+import { unitKey } from '../model/index.js';
+import type { LanguagePack, Lemma } from '../model/index.js';
+import type { Profile } from '../model/index.js';
+import { hasStandingClaim, isKnown } from '../model/index.js';
 
-import { unitState } from './profile.js';
+import { unitState } from './profile/index.js';
 
 /**
  * Measuring a text against what a learner knows.

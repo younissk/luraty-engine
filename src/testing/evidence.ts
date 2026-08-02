@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 
-import type { Evidence, EvidenceKind } from '../model/evidence.js';
-import { unitKey, type Day, type Direction, type UnitKey, type Variety } from '../model/ids.js';
+import type { Evidence, EvidenceKind } from '../model/index.js';
+import { unitKey, type Day, type Direction, type UnitKey, type Variety } from '../model/index.js';
 
 /**
  * Generators for evidence, in one place.
