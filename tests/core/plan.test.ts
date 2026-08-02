@@ -7,7 +7,7 @@ import type { Profile } from '../../src/model/index.js';
 
 import { DEFAULT_REVIEW_GAP_DAYS, OVER_ASK, plan } from '../../src/core/plan.js';
 import { deserialize, serialize } from '../../src/core/persist.js';
-import { advanceTo, createProfile } from '../../src/core/profile/index.js';
+import { advanceTo, createProfile, unitState } from '../../src/core/profile/index.js';
 import { record } from '../../src/core/record/index.js';
 import { KNOWN_AT_STRENGTH } from '../../src/model/index.js';
 
@@ -106,13 +106,52 @@ describe('plan', () => {
     expect(plan(p, { day: D(4), maxItems: 5, maxNew: 5 }).items).toHaveLength(1);
   });
 
-  it('does not drill a word the learner read today', () => {
-    // The reason `lastProven` exists. Reading refreshes `lastSeen`; scheduling on that would push
-    // every word in today's passage to the BACK of the queue — exactly the words being met now.
-    // Here the opposite must hold: passive exposure changes nothing about when it is due.
+  it('deprioritises a KNOWN word the learner read today, without excusing it', () => {
+    // ⚠️ THIS TEST INVERTED ON 2026-08-02, DELIBERATELY. It used to assert that exposure changed
+    // nothing at all, on the reasoning that scheduling on `lastSeen` would push the words in
+    // today's passage to the BACK of the queue — exactly the words being met now.
+    //
+    // That reasoning survives, and it is why `engagedOn` credits KNOWN units only; the companion
+    // test below pins it. What changed is the premise for maintenance. Measured over a simulated
+    // year (`tools/quran/src/simulate.ts`): a learner holding 4,000 words needed ~40 drills a DAY
+    // just to break even, because drills were the only thing circulating and reading contributed
+    // nothing the scheduler could see. For a graded-reading product that is backwards.
+    //
+    // So a sighting now buys a known word some PRIORITY — it sorts behind words she has not met —
+    // and buys it no exemption whatever. See `EXPOSURE_CREDIT_DAYS`.
     const before = plan(proven([['x', 1]]), { day: D(30), maxItems: 5, maxNew: 5 });
     const p = record(proven([['x', 1]]), [{ kind: 'exposure', unit: U('x'), day: D(30) }]);
-    expect(plan(p, { day: D(30), maxItems: 5, maxNew: 5 }).items).toEqual(before.items);
+    const after = plan(p, { day: D(30), maxItems: 5, maxNew: 5 });
+
+    // Still due — reading can defer a review and can never cancel one.
+    expect(after.items).toHaveLength(before.items.length);
+    // But it reports as far less overdue, which is what moves it down the queue.
+    expect(after.items[0]?.daysWaiting).toBeLessThan(before.items[0]?.daysWaiting ?? 0);
+    // And nothing about what she has PROVEN moved. Only a retrieval can do that.
+    expect(unitState(p, U('x')).strength).toBe(unitState(proven([['x', 1]]), U('x')).strength);
+  });
+
+  it('does NOT deprioritise a word she is still acquiring, however often she reads it', () => {
+    // ⚠️ THE ORIGINAL REASONING, kept and now load-bearing. The words in today's passage are the
+    // words she is acquiring; a weak one needs the drill MORE than the rest of the queue, not less.
+    // Crediting exposure here would push exactly the right words to the back.
+    const weak = record(createProfile('ar', D(1)), [
+      { kind: 'retrieval', unit: U('x'), outcome: 'known', day: D(1) },
+    ]);
+    const before = plan(weak, { day: D(30), maxItems: 5, maxNew: 5 });
+    const read = record(weak, [{ kind: 'exposure', unit: U('x'), day: D(30) }]);
+    expect(plan(read, { day: D(30), maxItems: 5, maxNew: 5 }).items).toEqual(before.items);
+  });
+
+  it('cannot hold a known word out of rotation by reading it every day', () => {
+    // ⚠️ THE STARVATION GUARD. The gap check runs on the STRICT anchor, so however small the
+    // reported wait becomes, the unit stays eligible and is picked the moment the budget reaches it.
+    let p = proven([['x', 1]]);
+    for (let d = 2; d <= 40; d++) {
+      p = record(p, [{ kind: 'exposure', unit: U('x'), day: D(d) }]);
+    }
+    // It is the only unit, so nothing can outrank it — and it is still there.
+    expect(plan(p, { day: D(40), maxItems: 5, maxNew: 5 }).items).toHaveLength(1);
   });
 
   it('brings a failed unit back soon, and then lets it LEAVE', () => {

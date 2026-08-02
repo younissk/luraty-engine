@@ -31,6 +31,34 @@ import { isKnown, type UnitState } from '../model/index.js';
 export const DEFAULT_REVIEW_GAP_DAYS = 3;
 
 /**
+ * How many days of waiting a plain SIGHTING is worth.
+ *
+ * ⚠️ **THIS EXISTS BECAUSE READING USED TO MAINTAIN NOTHING.** `exposure` moves `seen` and
+ * `lastSeen` and deliberately never touches `strength`, so a learner reading ten verses — several
+ * hundred word encounters — had done nothing the scheduler could see, and every bit of maintenance
+ * fell on drills. For a graded-reading product that is backwards.
+ *
+ * Measured before this existed (`tools/quran/src/simulate.ts`, 2026-08-02): a learner holding 4,000
+ * Qur'anic words needed **~40 drills a day just to break even**. Below that the readable share fell
+ * over a simulated year — 62.5% to 48.6% at ten a day. The ladder was not at fault: break-even is
+ * 66.7% accuracy and the learners cleared it. The problem was circulation, and drills were the only
+ * thing circulating.
+ *
+ * ⚠️ **IT BUYS PRIORITY, NOT EXEMPTION**, and that distinction is the whole safety of the idea. A
+ * sighting pushes a unit DOWN the queue so the scarce drill budget goes to words she is not already
+ * meeting; it never removes the unit from the due set. Read a word every day for a year and it is
+ * still eligible every day — it just loses to words she has not seen. If nothing else is due, it is
+ * picked. Starvation is therefore not representable rather than merely unlikely.
+ *
+ * ⚠️ Smaller than {@link DEFAULT_REVIEW_GAP_DAYS} on purpose. A sighting must be worth less than the
+ * interval between reviews, or reading would be able to hold a word out of rotation indefinitely by
+ * arithmetic even though the gap check would still admit it.
+ *
+ * ⚠️ PROVISIONAL, like the gap. Named so a simulation can sweep it.
+ */
+export const EXPOSURE_CREDIT_DAYS = 2;
+
+/**
  * How many more units to name than the session will use.
  *
  * Not a learning constant — an engineering one, about hosts. A content store will not have an
@@ -69,6 +97,37 @@ export const STUCK_AFTER_LAPSES = 6;
 function attendedOn(state: UnitState): Day {
   const claimed = state.prior.kind === 'claimed' ? state.prior.on : NEVER;
   return state.lastAsked > claimed ? state.lastAsked : claimed;
+}
+
+/**
+ * {@link attendedOn}, plus a discounted credit for having simply been SEEN.
+ *
+ * ⚠️ **USED FOR ORDERING AND REPORTING, NEVER FOR ELIGIBILITY.** The gap check below runs on
+ * `attendedOn`, so a sighting can defer a review and can never cancel one. See
+ * {@link EXPOSURE_CREDIT_DAYS}.
+ *
+ * A unit never seen keeps `NEVER`, so nothing about a fresh profile changes.
+ */
+function engagedOn(state: UnitState): Day {
+  const attended = attendedOn(state);
+
+  // ⚠️ **KNOWN UNITS ONLY, and this restriction is the whole correctness of the idea.**
+  //
+  // The words in today's passage are exactly the words she is currently acquiring. Deprioritising
+  // those is precisely backwards: she read them because they are live, and a weak one needs the
+  // drill more than anything else in the queue, not less. `plan.test.ts` has said so since v3 — the
+  // credit would push the words being met now to the BACK.
+  //
+  // For a unit at or above the known rung the reasoning inverts. Reading it is evidence it is still
+  // in circulation, and the scarce drill budget is better spent on words she is not meeting anyway.
+  // Same line the review gap already draws: below the known rung a unit is being ACQUIRED, at or
+  // above it a unit is being MAINTAINED, and only maintenance can be bought with a sighting.
+  if (!isKnown(state)) return attended;
+
+  if (state.lastSeen === NEVER) return attended;
+  // Discounted: seeing a word today is worth as much as having been asked EXPOSURE_CREDIT_DAYS ago.
+  const credited = (state.lastSeen - EXPOSURE_CREDIT_DAYS) as Day;
+  return attended > credited ? attended : credited;
 }
 
 /**
@@ -182,14 +241,21 @@ export function plan(profile: Profile, options: PlanOptions): Session {
     const why = whyFor(state);
     if (why === 'verify') claimsStanding += 1;
 
-    // Whole days since this unit was last ATTENDED — asked, or claimed. Never-attended units carry
-    // an anchor of 0, so they report the full span since the epoch, which is the largest possible
-    // wait and sorts them first with no special case anywhere.
+    // Whole days since this unit was last ENGAGED WITH — asked, claimed, or (at a discount) merely
+    // seen. Never-engaged units carry an anchor of 0, so they report the full span since the epoch,
+    // which is the largest possible wait and sorts them first with no special case anywhere.
     //
     // Clamped at 0 because `advanceTo` refuses to move a profile backwards but `options.day` is the
     // host's own number and may be behind `profile.day`. A negative wait would sort a unit as if it
     // were fresher than one attended today.
-    const daysWaiting = Math.max(0, day - attendedOn(state));
+    const daysWaiting = Math.max(0, day - engagedOn(state));
+
+    // ⚠️ THE GAP RUNS ON THE STRICT ANCHOR, NOT ON `daysWaiting`, and the difference is the whole
+    // safety argument for exposure credit. A unit she reads daily keeps a small `daysWaiting` and
+    // therefore sorts last — but its strict wait keeps growing, so it stays eligible and comes back
+    // the moment the budget reaches it. Gating on the discounted number would let reading hold a
+    // word out of rotation for good.
+    const waitedStrict = Math.max(0, day - attendedOn(state));
 
     // ⚠️ THE GAP APPLIES ONLY TO UNITS THAT COUNT AS KNOWN, and that is v3's one change here.
     //
@@ -204,7 +270,7 @@ export function plan(profile: Profile, options: PlanOptions): Session {
     // the engine's decisions depend on which epoch the HOST picked for day 0, and a beginner started
     // at day 0 got EMPTY sessions on days 1 and 2 while the identical profile started at day 2000
     // got its items immediately.
-    if (isKnown(state) && daysWaiting < gap) continue;
+    if (isKnown(state) && waitedStrict < gap) continue;
 
     due.push({ unit, daysWaiting, why });
   }
