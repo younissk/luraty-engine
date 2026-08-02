@@ -91,7 +91,9 @@ export type { WireProfileV1 } from './types/wire/wireProfileV1.js';
 export type { WireProfileV2 } from './types/wire/wireProfileV2.js';
 export type { WireProfileV3 } from './types/wire/wireProfileV3.js';
 export type { WireProfileV4 } from './types/wire/wireProfileV4.js';
+export type { WireProfileV5 } from './types/wire/wireProfileV5.js';
 export type { WireRowV4 } from './types/wire/wireRowV4.js';
+export type { WireRowV5 } from './types/wire/wireRowV5.js';
 export type { WireUnitV1 } from './types/wire/wireUnitV1.js';
 export type { WireUnitV2 } from './types/wire/wireUnitV2.js';
 export type { WireUnitV3 } from './types/wire/wireUnitV3.js';
@@ -107,4 +109,5 @@ export {
   STRENGTH_STEP,
   UNMET,
   WIRE_ROW_V4_LENGTH,
+  WIRE_ROW_V5_LENGTH,
 } from './constants.js';

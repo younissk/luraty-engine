@@ -3,11 +3,11 @@ import type { Profile } from '../model/index.js';
 import { clampStrength, KNOWN_AT_STRENGTH, type Prior, type UnitState } from '../model/index.js';
 import {
   PROFILE_SCHEMA_VERSION,
-  WIRE_ROW_V4_LENGTH,
+  WIRE_ROW_V5_LENGTH,
   type Decoded,
   type DecodeError,
   type WireProfile,
-  type WireRowV4,
+  type WireRowV5,
 } from '../model/index.js';
 import { assertNever } from '../utils/index.js';
 
@@ -37,12 +37,12 @@ function priorToWire(prior: Prior): number | null {
 }
 
 /**
- * One unit, as the positional row v4 stores.
+ * One unit, as the positional row v5 stores.
  *
- * ⚠️ THE ORDER IS THE FORMAT — it is declared on {@link WireRowV4} and this function and
+ * ⚠️ THE ORDER IS THE FORMAT — it is declared on {@link WireRowV5} and this function and
  * {@link parseRow} are the only two places allowed to know it. They must be read side by side.
  */
-function toRow(key: UnitKey, state: UnitState): WireRowV4 {
+function toRow(key: UnitKey, state: UnitState): WireRowV5 {
   return [
     key,
     state.seen,
@@ -52,6 +52,7 @@ function toRow(key: UnitKey, state: UnitState): WireRowV4 {
     priorToWire(state.prior),
     state.strength,
     state.lapses,
+    state.lastHelped,
   ];
 }
 
@@ -81,7 +82,7 @@ export function serialize(profile: Profile): string {
   const keys = (Object.keys(profile.units) as UnitKey[]).sort((a, b) =>
     a < b ? -1 : a > b ? 1 : 0,
   );
-  const units: WireRowV4[] = new Array<WireRowV4>(keys.length);
+  const units: WireRowV5[] = new Array<WireRowV5>(keys.length);
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i];
     // `noUncheckedIndexedAccess` types both lookups as possibly-undefined. Neither can miss — the
@@ -132,15 +133,15 @@ function isWholeNumber(v: unknown): v is number {
  * that quietly changes what the scheduler believes. So the length is exact, not a minimum, and each
  * slot is validated before it becomes a `UnitState`.
  *
- * The order is declared once on {@link WireRowV4}. Read this beside `toRow`; they are one format
+ * The order is declared once on {@link WireRowV5}. Read this beside `toRow`; they are one format
  * written twice and nothing else may know it.
  */
 function parseRow(row: readonly unknown[]): UnitState | undefined {
   // EXACT, not `>=`. A longer row is a newer format that reached here without a version bump, and
   // guessing that the extra elements are ignorable is how a forward-compat bug becomes a data bug.
-  if (row.length !== WIRE_ROW_V4_LENGTH) return undefined;
+  if (row.length !== WIRE_ROW_V5_LENGTH) return undefined;
 
-  const [, seen, lastSeen, lastAsked, lastProven, prior, strength, lapses] = row;
+  const [, seen, lastSeen, lastAsked, lastProven, prior, strength, lapses, lastHelped] = row;
 
   // Every counter and every anchor. These arrive from the migrations when they were not in the
   // stored bytes, so by the time this runs they are always present — checked anyway, because this is
@@ -151,6 +152,7 @@ function parseRow(row: readonly unknown[]): UnitState | undefined {
   if (!isWholeNumber(lastAsked)) return undefined;
   if (!isWholeNumber(lastProven)) return undefined;
   if (!isWholeNumber(lapses)) return undefined;
+  if (!isWholeNumber(lastHelped)) return undefined;
 
   // ⚠️ REJECT a non-whole rung, CLAMP an over-large one, and the asymmetry is deliberate. Corruption
   // must be named; but a blob written by a build whose `MAX_STRENGTH` was higher has to stay
@@ -172,6 +174,7 @@ function parseRow(row: readonly unknown[]): UnitState | undefined {
     prior: prior === null ? { kind: 'none' } : { kind: 'claimed', on: prior as Day },
     strength: clampStrength(strength),
     lapses,
+    lastHelped: lastHelped as Day,
   };
 }
 
@@ -358,6 +361,41 @@ const MIGRATIONS: Readonly<Record<number, (input: unknown) => unknown>> = {
           state.strength,
           state.lapses,
         ];
+      }),
+    };
+  },
+
+  /**
+   * v4 → v5: APPEND `lastHelped` to every row, as 0 (never helped).
+   *
+   * ⚠️ **A PUSH, NOT A RESHUFFLE, and that is the whole reason this bump was cheap.** `WireRowV4`
+   * states the rule — append, never insert — and v5 obeys it, so every earlier position keeps its
+   * index and no existing value can land in the wrong slot. Putting `lastHelped` next to the other
+   * anchors, where it reads better, would have shifted three anchors and a rung in every row of
+   * every stored profile.
+   *
+   * ⚠️ **0 rather than `lastSeen`, for exactly the reason `MIGRATIONS[1]` gives at length.** A
+   * stored profile has no record of which sightings were gloss taps, and mapping `lastSeen` here
+   * would tell the scheduler that every word the learner has ever read was one she needed help with
+   * — flooding tomorrow's queue with words she may know perfectly. Zero says "no help recorded",
+   * which is true, and the first real tap corrects it.
+   *
+   * Defensive like every step above: a row that is not an array is passed through untouched so
+   * `parseRow` names it, rather than this function throwing on the app's launch path.
+   */
+  4: (input: unknown): unknown => {
+    if (!isRecord(input) || !Array.isArray(input.units)) return input;
+    const entries: unknown[] = input.units;
+    return {
+      ...input,
+      v: 5,
+      units: entries.map((entry: unknown): unknown => {
+        // `Array.isArray` narrows to `any[]`, so spreading it directly would launder `any` into the
+        // output. Widening to `unknown[]` first keeps every value opaque — `parseRow` is the checker,
+        // and a migration that inspected values would be repairing corruption it should name.
+        if (!Array.isArray(entry)) return entry;
+        const row: unknown[] = entry;
+        return [...row, 0];
       }),
     };
   },

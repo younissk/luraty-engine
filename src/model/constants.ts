@@ -75,10 +75,13 @@ export const STRENGTH_STEP = {
  * Not the same as the package version — the API can change many times without the stored bytes
  * changing at all, and vice versa.
  */
-export const PROFILE_SCHEMA_VERSION = 4;
+export const PROFILE_SCHEMA_VERSION = 5;
 
 /** How many elements a `WireRowV4` has. Read by `serialize` and `parseRow`, nowhere else. */
 export const WIRE_ROW_V4_LENGTH = 8;
+
+/** v5 APPENDS `lastHelped`. Append, never insert — see {@link WireRowV5}. */
+export const WIRE_ROW_V5_LENGTH = 9;
 
 /**
  * The band, expressed the way ADR-0003 states it: **integer unknown-token density.**
@@ -151,4 +154,5 @@ export const UNMET: UnitState = Object.freeze({
   prior: Object.freeze({ kind: 'none' as const }),
   strength: LADDER[0],
   lapses: 0,
+  lastHelped: NEVER,
 });

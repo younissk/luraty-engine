@@ -18,11 +18,14 @@
  * `readonly` on every field rather than `Readonly<UnitState>`, which is only one level deep and
  * would happily allow `profile.units[k].seen++`.
  *
- * ### Three anchors, nested by strictness
+ * ### Four anchors — three nested by strictness, and one that is not
  *
  * `lastSeen ⊇ lastAsked ⊇ lastProven`. One date was being asked three different questions — when do
  * I schedule this, have I ever checked it, do I trust it — and answering all three from `lastProven`
  * is what pinned failing words at the head of the queue forever.
+ *
+ * `lastHelped` sits alongside rather than inside that chain: it is bounded by `lastSeen` and has no
+ * relation to `lastAsked`, because asking for help is not being tested.
  *
  * @module
  */
@@ -49,6 +52,27 @@ export type UnitState = {
    * queue — exactly backwards, since those are the words she is currently meeting. Reporting only.
    */
   readonly lastSeen: Day;
+
+  /**
+   * The last day she asked for HELP — tapped a gloss, revealed the meaning. `0` means never.
+   *
+   * ⚠️ **ADDED 2026-08-02 (ADR-0012) BECAUSE THE ALTERNATIVE WAS A SILENT COLLAPSE.** `help` used to
+   * differ from `exposure` only by costing a rung. Removing that penalty — which the evidence
+   * demands — would have made the two evidence kinds produce IDENTICAL state, so a deliberately
+   * four-member union would have had three distinguishable members. A distinction the type system
+   * makes and the state does not keep is not a distinction.
+   *
+   * ⚠️ **IT IS A POSITIVE SIGNAL, WHICH INVERTS WHAT THE OLD PENALTY ASSUMED.** Meta-analysis of 42
+   * studies: glossed reading teaches 45.3% of encountered words against 26.6% unglossed, and looking
+   * a word up predicts receptive vocabulary knowledge where guessing from context does not. A gloss
+   * tap is the most productive thing a learner does while reading. Charging a rung for it was
+   * backwards.
+   *
+   * ⚠️ **AND IT STILL PROVES NOTHING.** It moves no rung in either direction — ADR-0003's rule that
+   * only retrieval proves is untouched, and `known` still means proven. What it buys is a place in
+   * tomorrow's queue: see `plan`'s `engagedOn`.
+   */
+  readonly lastHelped: Day;
 
   /**
    * The last day a RETRIEVAL was attempted, whatever the outcome. `0` means never asked.

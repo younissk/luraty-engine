@@ -85,6 +85,42 @@ const FROZEN_V4 =
   '["recognise:fr:automne",1,12,12,12,null,1,0]' +
   ']}';
 
+/**
+ * ⚠️ FROZEN. The same learner again, as v5 writes them.
+ *
+ * v5 APPENDS `lastHelped` and changes nothing else, which is the rule `WireRowV4` states and the
+ * reason this diff is readable: every row is its v4 self with one number on the end. A field
+ * inserted rather than appended would show up here as four rows of shifted digits.
+ *
+ * ⚠️ **EVERY `lastHelped` HERE IS 0, AND THAT IS WHY IT CANNOT BE THE ONLY v5 GOLDEN.** This
+ * learner never tapped a gloss, so a golden built only from her would pin the new field at its
+ * default and pass no matter what `help` did to it — an input that cannot exercise the behaviour
+ * under test. `FROZEN_V5_HELPED` below is the one that can.
+ */
+const FROZEN_V5 =
+  '{"v":5,"language":"ar","day":42,"units":[' +
+  '["produce:ar-msa:سوق",1,5,5,0,null,0,1,0],' +
+  '["recognise:ar-msa:سوق",2,5,5,5,null,2,0,0],' +
+  '["recognise:ar-msa:كتاب",1,9,0,0,null,0,0,0],' +
+  '["recognise:fr:automne",1,12,12,12,null,1,0,0]' +
+  ']}';
+
+/**
+ * ⚠️ FROZEN. A learner who TAPPED A GLOSS, which is the only kind that pins the v5 field.
+ *
+ * Two units, chosen to pin the two halves of ADR-0012 in one string:
+ *
+ * - `سوق` was proven twice and then tapped on day 30. Its rung stays at **2** — the tap costs
+ *   nothing, where v4 would have written 1 — and `lastHelped` is 30.
+ * - `كتاب` was only ever tapped. It is at rung 0 with `lastAsked` still 0, because asking for help
+ *   is not being asked.
+ */
+const FROZEN_V5_HELPED =
+  '{"v":5,"language":"ar","day":42,"units":[' +
+  '["recognise:ar-msa:سوق",3,30,5,5,null,2,0,30],' +
+  '["recognise:ar-msa:كتاب",1,9,0,0,null,0,0,9]' +
+  ']}';
+
 const AR = variety('ar-msa');
 const FR = variety('fr');
 const D = (n: number): Day => n as Day;
@@ -103,16 +139,31 @@ function goldenProfile() {
 }
 
 describe('wire format', () => {
-  it('serializes byte-for-byte as v4 was frozen', () => {
+  it('serializes byte-for-byte as v5 was frozen', () => {
     // A behaviour golden, not a unit test. Every example test in this package is written in terms
     // of the rules, so a change to a rule changes the tests with it and everything stays green.
     // This string cannot rationalise: it is what the engine produced on a specific day, and a diff
     // against it is a human decision about whether the change was intended.
-    expect(serialize(goldenProfile())).toBe(FROZEN_V4);
+    expect(serialize(goldenProfile())).toBe(FROZEN_V5);
+  });
+
+  it('pins the v5 field with a learner who actually used it', () => {
+    // ⚠️ THE GOLDEN THAT CAN FAIL. `FROZEN_V5` has `lastHelped: 0` in every row, so it would pass
+    // whatever `help` wrote. This one is the executable statement of ADR-0012: a tap costs no rung
+    // and stamps the anchor.
+    let p = createProfile('ar', D(1));
+    p = advanceTo(p, D(42));
+    p = record(p, [
+      { kind: 'retrieval', unit: unitKey('recognise', AR, 'سوق'), outcome: 'known', day: D(1) },
+      { kind: 'retrieval', unit: unitKey('recognise', AR, 'سوق'), outcome: 'known', day: D(5) },
+      { kind: 'help', unit: unitKey('recognise', AR, 'كتاب'), day: D(9) },
+      { kind: 'help', unit: unitKey('recognise', AR, 'سوق'), day: D(30) },
+    ]);
+    expect(serialize(p)).toBe(FROZEN_V5_HELPED);
   });
 
   it('is the version this test claims it is', () => {
-    expect(PROFILE_SCHEMA_VERSION).toBe(4);
+    expect(PROFILE_SCHEMA_VERSION).toBe(5);
   });
 
   it('is less than half the size v3 was, for the same learner', () => {
@@ -201,12 +252,12 @@ describe('the migration chain', () => {
     // (`automne` was proven on day 12, and v1 had nowhere to record it). What must hold is that the
     // result is well-formed and round-trips.
     const reserialized = serialize(loaded.value);
-    expect(reserialized).toContain('"v":4');
+    expect(reserialized).toContain('"v":5');
     // The whole row for `automne`, positionally: seen 1, lastSeen 12, lastAsked 0, lastProven 0,
     // no claim, rung 1, no lapses. Under v3 this assertion could name one field; under v4 naming
     // one field is impossible, so it names all of them — which is strictly better, because the
     // failure mode v4 introduces is a SHIFT, and only a whole-row assertion can see a shift.
-    expect(reserialized).toContain('["recognise:fr:automne",1,12,0,0,null,1,0]');
+    expect(reserialized).toContain('["recognise:fr:automne",1,12,0,0,null,1,0,0]');
 
     const again = deserialize(reserialized);
     expect(again.ok).toBe(true);
@@ -378,14 +429,17 @@ describe('the v3 to v4 re-encoding', () => {
     const loaded = deserialize(FROZEN_V3);
     expect(loaded.ok).toBe(true);
     if (!loaded.ok) return;
-    expect(serialize(loaded.value)).toBe(FROZEN_V4);
+    // ⚠️ Now compared against the v5 bytes, because `deserialize` walks the whole chain and
+    // `serialize` only ever writes the current version. The claim is unchanged: v3→v4 invents
+    // nothing, and v4→v5 appends a documented default.
+    expect(serialize(loaded.value)).toBe(FROZEN_V5);
   });
 
-  it('reads a native v4 blob back to the same profile', () => {
+  it('reads a native v4 blob back through the v5 migration', () => {
     const loaded = deserialize(FROZEN_V4);
     expect(loaded.ok).toBe(true);
     if (!loaded.ok) return;
-    expect(serialize(loaded.value)).toBe(FROZEN_V4);
+    expect(serialize(loaded.value)).toBe(FROZEN_V5);
     expect(loaded.value.day).toBe(42);
     expect(isKnown(unitState(loaded.value, unitKey('recognise', AR, 'سوق')))).toBe(true);
     expect(isKnown(unitState(loaded.value, unitKey('produce', AR, 'سوق')))).toBe(false);
@@ -451,7 +505,7 @@ describe('the v3 to v4 re-encoding', () => {
   });
 
   it('still refuses a profile written by a newer engine', () => {
-    const future = deserialize('{"v":5,"language":"de","day":1,"units":[]}');
+    const future = deserialize('{"v":6,"language":"de","day":1,"units":[]}');
     expect(future.ok).toBe(false);
     if (future.ok) return;
     expect(future.error.kind).toBe('from-the-future');

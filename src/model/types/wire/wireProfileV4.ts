@@ -1,5 +1,5 @@
 /**
- * A whole profile, as stored by schema v4 — the current one.
+ * A whole profile, as stored by schema v4. Superseded by v5; kept because `MIGRATIONS[4]` traverses it.
  *
  * @module
  */

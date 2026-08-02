@@ -190,9 +190,10 @@ describe('the content request agrees with the session it accompanies', () => {
     p = record(p, [{ kind: 'claim', unit: U('a'), day: D(7) }]);
     for (let i = 1; i <= 8; i++) p = record(p, [drill('a', 'known', i)]);
 
-    // seen, lastSeen, lastAsked, lastProven, prior, strength, lapses — the order `WireRowV4` declares.
+    // seen, lastSeen, lastAsked, lastProven, prior, strength, lapses, lastHelped — the order
+    // `WireRowV5` declares. `lastHelped` is 0: this learner drilled and claimed, she never tapped.
     expect(serialize(p)).toBe(
-      '{"v":4,"language":"de","day":1,"units":[["recognise:de:a",8,8,8,8,7,6,0]]}',
+      '{"v":5,"language":"de","day":1,"units":[["recognise:de:a",8,8,8,8,7,6,0,0]]}',
     );
 
     const back = deserialize(serialize(p));

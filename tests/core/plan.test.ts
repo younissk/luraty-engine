@@ -194,6 +194,73 @@ describe('plan', () => {
     expect(session.items[0]?.why).toBe('verify');
   });
 
+  it('puts a word she tapped a gloss on ahead of one she merely waited on', () => {
+    // ⚠️ **ADR-0012, THE HAND-OFF FROM READING TO DRILLING.** She read a passage, hit a word she did
+    // not know, and tapped for the meaning. The literature says that tap is where acquisition
+    // happens — glossed reading teaches 45.3% of encountered words against 26.6% unglossed — and it
+    // takes ~14 encounters to stick. So the tap is the moment to put it in the drill queue.
+    //
+    // Two words, asked the same day, neither known. Only one was tapped.
+    let p = proven([
+      ['tapped', 5],
+      ['ignored', 5],
+    ]);
+    p = record(p, [{ kind: 'help', unit: U('tapped'), day: D(20) }]);
+
+    const session = plan(p, { day: D(21), maxItems: 1, maxNew: 0 });
+    expect(words(session)).toEqual(['tapped']);
+  });
+
+  it('does NOT promote a word she merely read past', () => {
+    // ⚠️ THE HALF THAT KEEPS THE SIGNAL HONEST, and the reason `lastHelped` had to be a field. A
+    // passive sighting is not evidence she wanted the word — she may have read straight past without
+    // noticing she did not know it. Before `lastHelped`, `help` and `exposure` differed only by a
+    // rung penalty, so removing the penalty would have made this test impossible to write.
+    let p = proven([
+      ['seen', 5],
+      ['ignored', 5],
+    ]);
+    p = record(p, [{ kind: 'exposure', unit: U('seen'), day: D(20) }]);
+
+    // The tiebreak falls to the key, alphabetically — 'ignored' before 'seen'. Exposure bought
+    // nothing, which is the assertion.
+    expect(words(plan(p, { day: D(21), maxItems: 1, maxNew: 0 }))).toEqual(['ignored']);
+  });
+
+  it('gives the tap priority WITHOUT giving it a rung', () => {
+    // ⚠️ ADR-0003's rule that only retrieval proves is untouched, and this is where that is pinned
+    // from the scheduler's side: the word moves up the queue and `known` is unchanged.
+    const before = proven([['x', 5]]);
+    const after = record(before, [{ kind: 'help', unit: U('x'), day: D(20) }]);
+    expect(unitState(after, U('x')).strength).toBe(unitState(before, U('x')).strength);
+  });
+
+  it('lets a host turn the hand-off off, and never lets it outrank a never-asked word', () => {
+    let p = proven([
+      ['tapped', 5],
+      ['ignored', 5],
+    ]);
+    p = record(p, [{ kind: 'help', unit: U('tapped'), day: D(20) }]);
+    // `0` restores the pre-2026-08-02 ordering — the control arm a sweep needs.
+    expect(words(plan(p, { day: D(21), maxItems: 1, maxNew: 0, helpPriorityDays: 0 }))).toEqual([
+      'ignored',
+    ]);
+
+    // ⚠️ AND THE BONUS IS FLOORED AT `NEVER`. A never-asked unit anchors at day 0, the maximum
+    // possible wait; if a tap could push an attended unit BELOW that, one word she looked up would
+    // outrank everything she has never met, permanently.
+    //
+    // Asked day 1, tapped day 2, planned day 5. The raw shift is `1 - 4 = -3`, which the floor
+    // raises to 0 — so the wait reads 5, exactly the day, and never more.
+    //
+    // ⚠️ Day 5 rather than day 3, and the reason is a real boundary: the tap buys ORDER, not
+    // eligibility, so a KNOWN word tapped today is still held by the review gap. At day 3 this
+    // session is empty. Whether that is right is an open question — see ADR-0012's Notes.
+    let early = proven([['x', 1]]);
+    early = record(early, [{ kind: 'help', unit: U('x'), day: D(2) }]);
+    expect(plan(early, { day: D(5), maxItems: 5, maxNew: 5 }).items[0]?.daysWaiting).toBe(5);
+  });
+
   it('lets a host tune all three provisional constants, and defaults to each', () => {
     // ⚠️ WHY THESE ARE OPTIONS AT ALL. `reviewGapDays`, `exposureCreditDays` and
     // `claimedGapMultiplier` are 3, 2 and 10 because somebody had to write a number down. They
