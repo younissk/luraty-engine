@@ -5,7 +5,12 @@ import type { Evidence } from '../../src/model/index.js';
 import { unitKey, variety, type Day, type UnitKey } from '../../src/model/index.js';
 import type { Profile } from '../../src/model/index.js';
 
-import { DEFAULT_REVIEW_GAP_DAYS, OVER_ASK, plan } from '../../src/core/plan.js';
+import {
+  CLAIMED_REVIEW_GAP_MULTIPLIER,
+  DEFAULT_REVIEW_GAP_DAYS,
+  OVER_ASK,
+  plan,
+} from '../../src/core/plan.js';
 import { deserialize, serialize } from '../../src/core/persist.js';
 import { advanceTo, createProfile, unitState } from '../../src/core/profile/index.js';
 import { record } from '../../src/core/record/index.js';
@@ -152,6 +157,41 @@ describe('plan', () => {
     }
     // It is the only unit, so nothing can outrank it — and it is still there.
     expect(plan(p, { day: D(40), maxItems: 5, maxNew: 5 }).items).toHaveLength(1);
+  });
+
+  it('lets a learner say "I already know this" and stop being asked for a long time', () => {
+    // Founder decision 2026-08-02: every learner has words she will never need to see again, and
+    // making her sit through `hello` for a year is the fastest way to lose her.
+    //
+    // ⚠️ NO FIFTH `Evidence` MEMBER. Pressing "I know this" is exactly a `claim` — an unchecked
+    // assertion of prior knowledge — and the union is deliberately closed at four learner
+    // behaviours. What was missing was not a way to record it but a reason for the scheduler to care.
+    const proof = proven([['x', 1]]);
+    const claimed = record(proof, [{ kind: 'claim', unit: U('x'), day: D(10) }]);
+
+    // Without the claim it is back after the ordinary gap.
+    expect(plan(proof, { day: D(20), maxItems: 5, maxNew: 5 }).items).toHaveLength(1);
+    // With it, it waits an order of magnitude longer.
+    expect(plan(claimed, { day: D(20), maxItems: 5, maxNew: 5 }).items).toHaveLength(0);
+  });
+
+  it('defers the claimed word — it does not retire it', () => {
+    // ⚠️ ADR-0003 invariant 2: nothing ever graduates out of the pool. A control that silenced a
+    // word for good would satisfy the founder's request and break the invariant, so it does not.
+    const claimed = record(proven([['x', 1]]), [{ kind: 'claim', unit: U('x'), day: D(10) }]);
+    const gap = DEFAULT_REVIEW_GAP_DAYS * CLAIMED_REVIEW_GAP_MULTIPLIER;
+    expect(plan(claimed, { day: D(10 + gap), maxItems: 5, maxNew: 5 }).items).toHaveLength(1);
+  });
+
+  it('does NOT defer a placement claim on a word she has never been asked', () => {
+    // ⚠️ THE BOUNDARY THAT KEEPS PLACEMENT WORKING. A placement hands over hundreds of bare claims;
+    // if those earned the long gap, a placed learner would be asked almost nothing. They sit at rung
+    // 0, the gap only applies at or above the known rung, so they are drilled normally — and
+    // `why: 'verify'` is exactly the engine asking for them to be checked.
+    const placed = record(createProfile('ar', D(1)), [{ kind: 'claim', unit: U('x'), day: D(1) }]);
+    const session = plan(placed, { day: D(2), maxItems: 5, maxNew: 5 });
+    expect(session.items).toHaveLength(1);
+    expect(session.items[0]?.why).toBe('verify');
   });
 
   it('brings a failed unit back soon, and then lets it LEAVE', () => {

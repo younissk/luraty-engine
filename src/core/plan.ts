@@ -59,6 +59,35 @@ export const DEFAULT_REVIEW_GAP_DAYS = 3;
 export const EXPOSURE_CREDIT_DAYS = 2;
 
 /**
+ * How much longer a unit waits when the learner has SAID she knows it, on top of proving it.
+ *
+ * ⚠️ **THIS IS THE "I ALREADY KNOW THIS" CONTROL, and it is a multiplier rather than a number of
+ * days on purpose** — a host that widens {@link PlanOptions.reviewGapDays} means every interval to
+ * widen with it, and an absolute constant here would silently shrink the relationship it is meant to
+ * express.
+ *
+ * Every learner has words she will never need to see again. Making her sit through `hello` for a
+ * year is the fastest way to lose her, and it spends drill budget that the circulation arithmetic
+ * says is already scarce.
+ *
+ * ⚠️ **IT NEEDS NO FIFTH `Evidence` MEMBER, and that is the point.** A learner pressing "I know this"
+ * is making exactly a {@link Claim} — an unchecked assertion of prior knowledge — and the union is
+ * deliberately closed at four learner behaviours. What was missing was never a way to record the
+ * claim; it was that a claim bought almost nothing from the scheduler.
+ *
+ * ⚠️ **IT APPLIES ONLY WHERE A CLAIM MEETS A PROOF.** The gap itself only runs on units at or above
+ * the known rung, and a bare claim on a never-asked unit sits at rung 0 — so a placement's 800
+ * claims are untouched and still get drilled. What earns the long wait is the strongest combination
+ * the ledger can hold: she proved it AND she says she knows it. That is the same reading
+ * {@link effectiveStrength} already takes when it grants a confirmed claim an extra rung.
+ *
+ * ⚠️ **IT DEFERS; IT DOES NOT RETIRE.** ADR-0003 invariant 2 says nothing ever graduates out of the
+ * pool, and this respects that — the word comes back, just much later. It is also self-correcting:
+ * if she was wrong, she fails it when it returns and the miss costs two rungs.
+ */
+export const CLAIMED_REVIEW_GAP_MULTIPLIER = 10;
+
+/**
  * How many more units to name than the session will use.
  *
  * Not a learning constant — an engineering one, about hosts. A content store will not have an
@@ -257,6 +286,10 @@ export function plan(profile: Profile, options: PlanOptions): Session {
     // word out of rotation for good.
     const waitedStrict = Math.max(0, day - attendedOn(state));
 
+    // A word she has proven AND told us she knows waits far longer than one she has merely proven.
+    // See {@link CLAIMED_REVIEW_GAP_MULTIPLIER}.
+    const dueGap = state.prior.kind === 'claimed' ? gap * CLAIMED_REVIEW_GAP_MULTIPLIER : gap;
+
     // ⚠️ THE GAP APPLIES ONLY TO UNITS THAT COUNT AS KNOWN, and that is v3's one change here.
     //
     // v2 gated anything ever proven, which left a unit that had been proven once and failed twice
@@ -270,7 +303,7 @@ export function plan(profile: Profile, options: PlanOptions): Session {
     // the engine's decisions depend on which epoch the HOST picked for day 0, and a beginner started
     // at day 0 got EMPTY sessions on days 1 and 2 while the identical profile started at day 2000
     // got its items immediately.
-    if (isKnown(state) && waitedStrict < gap) continue;
+    if (isKnown(state) && waitedStrict < dueGap) continue;
 
     due.push({ unit, daysWaiting, why });
   }
