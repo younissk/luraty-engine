@@ -194,6 +194,69 @@ describe('plan', () => {
     expect(session.items[0]?.why).toBe('verify');
   });
 
+  it('lets a host tune all three provisional constants, and defaults to each', () => {
+    // ⚠️ WHY THESE ARE OPTIONS AT ALL. `reviewGapDays`, `exposureCreditDays` and
+    // `claimedGapMultiplier` are 3, 2 and 10 because somebody had to write a number down. They
+    // INTERACT — the credit is deliberately smaller than the gap and the multiplier scales it — so a
+    // sweep that could only vary one of them would be measuring the other two. The harness that does
+    // the sweeping lives outside this package (`tools/quran/src/simulate.ts`) and cannot reach a
+    // module constant, so the constants have to be reachable through the call.
+    const claimed = record(proven([['x', 1]]), [{ kind: 'claim', unit: U('x'), day: D(10) }]);
+
+    // Default: 3 × 10 = 30 days, so day 20 is too early and day 40 is not.
+    expect(plan(claimed, { day: D(20), maxItems: 5, maxNew: 5 }).items).toHaveLength(0);
+    // A host that does not want the control pays nothing for it: multiplier 1 is the plain gap.
+    expect(
+      plan(claimed, { day: D(20), maxItems: 5, maxNew: 5, claimedGapMultiplier: 1 }).items,
+    ).toHaveLength(1);
+    // And widening the gap widens the deferral with it — that is what a multiplier BUYS over a day
+    // count. 6 × 10 = 60, so day 40 now falls short where the default admitted it.
+    expect(plan(claimed, { day: D(40), maxItems: 5, maxNew: 5 }).items).toHaveLength(1);
+    expect(
+      plan(claimed, { day: D(40), maxItems: 5, maxNew: 5, reviewGapDays: 6 }).items,
+    ).toHaveLength(0);
+  });
+
+  it('reports a smaller wait for a word she read, and a bigger credit shrinks it further', () => {
+    // The exposure credit is ORDERING, so it shows up in `daysWaiting` rather than in eligibility.
+    // Read on day 20, asked on day 1, planning day 30: the strict wait is 29 and the credit knocks
+    // the reported one down to `30 - (20 - credit)`.
+    const read = record(proven([['x', 1]]), [{ kind: 'exposure', unit: U('x'), day: D(20) }]);
+    const base = { day: D(30), maxItems: 5, maxNew: 5 };
+    // Spread rather than pass `undefined`: `exactOptionalPropertyTypes` makes "absent" and
+    // "present and undefined" different types, and only the first is what a defaulting caller does.
+    const waitAt = (credit?: number) =>
+      plan(read, credit === undefined ? base : { ...base, exposureCreditDays: credit }).items[0]
+        ?.daysWaiting;
+
+    expect(waitAt()).toBe(12); // default credit of 2
+    expect(waitAt(5)).toBe(15);
+    // ⚠️ Zero turns the credit OFF rather than falling back to the default, which is the difference
+    // between an option and an absent one. This is the pre-2026-08-02 behaviour, where reading
+    // maintained nothing, and a sweep needs to be able to ask for it as a control arm.
+    expect(waitAt(0)).toBe(10);
+  });
+
+  it('never lets a tuned multiplier remove a unit from rotation', () => {
+    // ⚠️ ADR-0003 invariant 2 must hold for values a HOST picks, not only for the default. `clamp`
+    // floors at 0, and a multiplier of 0 would make the gap 0 — reading as "always due" rather than
+    // "never due", but either way it is not something a caller can mean. It is raised to 1.
+    const claimed = record(proven([['x', 1]]), [{ kind: 'claim', unit: U('x'), day: D(10) }]);
+    expect(
+      plan(claimed, { day: D(13), maxItems: 5, maxNew: 5, claimedGapMultiplier: 0 }).items,
+    ).toHaveLength(1);
+    // And however large the multiplier, the word still comes back. Deferral, never retirement.
+    const huge = 1000;
+    expect(
+      plan(claimed, {
+        day: D(10 + DEFAULT_REVIEW_GAP_DAYS * huge),
+        maxItems: 5,
+        maxNew: 5,
+        claimedGapMultiplier: huge,
+      }).items,
+    ).toHaveLength(1);
+  });
+
   it('brings a failed unit back soon, and then lets it LEAVE', () => {
     // ⚠️ THIS TEST INVERTED IN v3, DELIBERATELY, AND IT IS THE LEECH FIX.
     //

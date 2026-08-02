@@ -137,7 +137,7 @@ function attendedOn(state: UnitState): Day {
  *
  * A unit never seen keeps `NEVER`, so nothing about a fresh profile changes.
  */
-function engagedOn(state: UnitState): Day {
+function engagedOn(state: UnitState, credit: number): Day {
   const attended = attendedOn(state);
 
   // ⚠️ **KNOWN UNITS ONLY, and this restriction is the whole correctness of the idea.**
@@ -154,8 +154,8 @@ function engagedOn(state: UnitState): Day {
   if (!isKnown(state)) return attended;
 
   if (state.lastSeen === NEVER) return attended;
-  // Discounted: seeing a word today is worth as much as having been asked EXPOSURE_CREDIT_DAYS ago.
-  const credited = (state.lastSeen - EXPOSURE_CREDIT_DAYS) as Day;
+  // Discounted: seeing a word today is worth as much as having been asked `credit` days ago.
+  const credited = (state.lastSeen - credit) as Day;
   return attended > credited ? attended : credited;
 }
 
@@ -232,6 +232,14 @@ export function plan(profile: Profile, options: PlanOptions): Session {
   const day = options.day;
   const maxItems = clamp(options.maxItems, 0);
   const gap = clamp(options.reviewGapDays, DEFAULT_REVIEW_GAP_DAYS);
+  const credit = clamp(options.exposureCreditDays, EXPOSURE_CREDIT_DAYS);
+  // Clamped to at least 1, unlike the other two. A multiplier of 0 would make a claimed unit due
+  // FOREVER — the opposite of what every caller passing it could possibly mean — and `clamp`'s
+  // floor is 0. See {@link PlanOptions.claimedGapMultiplier}.
+  const claimedMultiplier = Math.max(
+    1,
+    clamp(options.claimedGapMultiplier, CLAIMED_REVIEW_GAP_MULTIPLIER),
+  );
   // Defaults to half the session, and the number is measured rather than chosen — see
   // {@link PlanOptions.maxNew}. Sweeping a simulated year across budgets 4–40, accuracies 0.7–0.95
   // and introduction rates 3–20, `floor(maxItems / 2)` lands on the peak or within 3% of it
@@ -277,7 +285,7 @@ export function plan(profile: Profile, options: PlanOptions): Session {
     // Clamped at 0 because `advanceTo` refuses to move a profile backwards but `options.day` is the
     // host's own number and may be behind `profile.day`. A negative wait would sort a unit as if it
     // were fresher than one attended today.
-    const daysWaiting = Math.max(0, day - engagedOn(state));
+    const daysWaiting = Math.max(0, day - engagedOn(state, credit));
 
     // ⚠️ THE GAP RUNS ON THE STRICT ANCHOR, NOT ON `daysWaiting`, and the difference is the whole
     // safety argument for exposure credit. A unit she reads daily keeps a small `daysWaiting` and
@@ -288,7 +296,7 @@ export function plan(profile: Profile, options: PlanOptions): Session {
 
     // A word she has proven AND told us she knows waits far longer than one she has merely proven.
     // See {@link CLAIMED_REVIEW_GAP_MULTIPLIER}.
-    const dueGap = state.prior.kind === 'claimed' ? gap * CLAIMED_REVIEW_GAP_MULTIPLIER : gap;
+    const dueGap = state.prior.kind === 'claimed' ? gap * claimedMultiplier : gap;
 
     // ⚠️ THE GAP APPLIES ONLY TO UNITS THAT COUNT AS KNOWN, and that is v3's one change here.
     //

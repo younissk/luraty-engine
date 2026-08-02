@@ -82,6 +82,33 @@ export type PlanOptions = {
   readonly reviewGapDays?: number;
 
   /**
+   * How many days of waiting a plain SIGHTING is worth, for a unit at or above the known rung.
+   * Defaults to `EXPOSURE_CREDIT_DAYS`.
+   *
+   * ⚠️ **IT BUYS ORDER, NEVER ELIGIBILITY.** The review gap is checked against the strict anchor, so
+   * raising this deprioritises a word she keeps reading and can never hold it out of rotation. `0`
+   * turns the credit off entirely and restores the pre-2026-08-02 behaviour, where reading
+   * maintained nothing.
+   *
+   * ⚠️ It is an option for the same reason `reviewGapDays` is: **it is provisional and nobody has
+   * measured it.** The three tunable numbers on this type — the gap, this, and
+   * `claimedGapMultiplier` — interact, so a host tuning one in isolation is measuring the other two.
+   */
+  readonly exposureCreditDays?: number;
+
+  /**
+   * How much longer a unit that is proven AND claimed waits than one merely proven. Defaults to
+   * `CLAIMED_REVIEW_GAP_MULTIPLIER`.
+   *
+   * A multiplier rather than a day count, so a host that widens `reviewGapDays` widens this with it.
+   * `1` disables the deferral, making "I already know this" cost nothing and buy nothing.
+   *
+   * ⚠️ **IT DEFERS, IT DOES NOT RETIRE.** No finite value can remove a unit from rotation, which is
+   * what keeps ADR-0003's second invariant true whatever a host passes.
+   */
+  readonly claimedGapMultiplier?: number;
+
+  /**
    * Which units to prefer when two have waited exactly the same number of days.
    *
    * ⚠️ WHY THIS EXISTS. Ties are not an edge case — they are the normal case. A learner who was
