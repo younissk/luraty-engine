@@ -15,6 +15,8 @@
 export { day } from './day.js';
 export { isDirection } from './isDirection.js';
 export { isUnitKey } from './isUnitKey.js';
+export { parseSkillKey, type SkillParts } from './parseSkillKey.js';
+export { SKILL, isSkill, skillKey } from './skillKey.js';
 export { parseUnitKey } from './parseUnitKey.js';
 export { unitKey } from './unitKey.js';
 export { variety } from './variety.js';

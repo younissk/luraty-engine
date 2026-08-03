@@ -11,7 +11,7 @@
 
 // ── Identifiers ─────────────────────────────────────────────────────────────────────────────────
 export type { Day, Direction, UnitKey, UnitParts, Variety } from './model/index.js';
-export { DIRECTIONS, day, parseUnitKey, unitKey, variety } from './model/index.js';
+export { DIRECTIONS, day, isUnitKey, parseUnitKey, unitKey, variety } from './model/index.js';
 
 // ── What the engine believes ────────────────────────────────────────────────────────────────────
 // One flat shape per unit, plus a rung ladder. `Learning | Understood | Box` are GONE: under a
@@ -113,6 +113,12 @@ export {
 // list, key each word, drop empties and duplicates" loop was hand-written FIVE times in this repo
 // before it was published once.
 export { claimsFor, exposuresFor, keysFor, vocabularyOf, wordsIn } from './core/bulk/index.js';
+
+// ── Skills ──────────────────────────────────────────────────────────────────────────────────────
+// A grammar rule fades like a word does, so it is a UNIT and the scheduler needs no new code.
+// Nothing in `plan()` parses a key — see `skillKey` for why that is what makes this free.
+export { SKILL, isSkill, skillKey } from './model/index.js';
+export { parseSkillKey, type SkillParts } from './model/index.js';
 
 // ── The fluent handle, entirely optional ────────────────────────────────────────────────────────
 // Adds no power: every method delegates to a function above, and `learner.profile` is always
