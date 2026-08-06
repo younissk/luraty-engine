@@ -15,14 +15,14 @@
  * @module
  */
 
-import type { Day, Direction, Exposure, Variety } from '../../model/index.js';
+import type { Day, Modality, Exposure, Variety } from '../../model/index.js';
 import { keysFor } from './keysFor.js';
 
 export function exposuresFor(
-  direction: Direction,
+  modality: Modality,
   v: Variety,
   words: readonly string[],
   day: Day,
 ): readonly Exposure[] {
-  return keysFor(direction, v, words).map((unit) => ({ kind: 'exposure', unit, day }));
+  return keysFor(modality, v, words).map((unit) => ({ kind: 'exposure', unit, day }));
 }

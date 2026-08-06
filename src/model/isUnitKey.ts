@@ -9,23 +9,23 @@
  * than a check — the exact thing the two-step constructor was written to avoid. A type predicate
  * carries the proof into the type system instead.
  *
+ * ⚠️ **THE SECOND ARM IS GONE, AND THAT IS THE POINT OF ADR-0022.** It used to read
+ * `parseUnitKey(key) !== undefined || parseSkillKey(key) !== undefined`, because a `skill:` key had
+ * no `Direction` in its first segment and `parseUnitKey` rejected it by design. `persist` validates
+ * every key on load and fails the whole blob as malformed when one does not parse — so without that
+ * arm, a learner who did one grammar lesson could never open her profile again. It was found by
+ * reading `persist` rather than by a failing test, because the skill test never round-tripped
+ * through serialization.
+ *
+ * That is a patch per namespace, and the next two namespaces were pronunciation and writing. Now the
+ * modality is checked in one place, so there is nothing to forget.
+ *
  * @module
  */
 
 import { parseUnitKey } from './parseUnitKey.js';
-import { parseSkillKey } from './parseSkillKey.js';
 import type { UnitKey } from './types/unitKey.js';
 
-/**
- * ⚠️ **A SKILL KEY IS A UNIT KEY, AND FORGETTING THAT WOULD HAVE BROKEN EVERY PROFILE THAT HELD ONE.**
- * `persist` validates every key on load and fails the whole blob as malformed when one does not
- * parse — deliberately, because an unparseable key silently shortens every session forever. A
- * `skill:` key has no `Direction` in its first segment, so `parseUnitKey` rejects it by design, and
- * without this second arm a learner who did one grammar lesson could never load her profile again.
- *
- * Found by reading `persist` rather than by a failing test: the unit test for skills passed happily,
- * because it never round-tripped through serialization.
- */
 export function isUnitKey(key: string): key is UnitKey {
-  return parseUnitKey(key) !== undefined || parseSkillKey(key) !== undefined;
+  return parseUnitKey(key) !== undefined;
 }

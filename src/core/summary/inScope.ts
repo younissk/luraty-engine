@@ -28,7 +28,11 @@ export function inScope(key: UnitKey, scope: SummaryScope): boolean {
       // Matched on the PARSED parts rather than a string prefix. A prefix test would need the
       // caller's variety to be free of colons — true today by construction, and exactly the kind of
       // invariant that stops being true quietly.
-      return parts.direction === scope.direction && parts.variety === scope.variety;
+      //
+      // ⚠️ `modality`, not `direction` (ADR-0022). Since `parseUnitKey` accepts every modality, a
+      // `skill:` or `pronounce:` unit reaches `'all'`; keying this on a two-member `Direction` would
+      // leave those units in the whole and in no part, breaking the partition law above.
+      return parts.modality === scope.modality && parts.variety === scope.variety;
     }
     default:
       return assertNever(scope, 'SummaryScope');

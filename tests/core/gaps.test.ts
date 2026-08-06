@@ -370,9 +370,9 @@ describe('gap 5 — the engine can ask for a re-measurement, and the host can di
     ]);
 
     expect(summarize(p, { kind: 'all' }).known).toBe(1);
-    expect(summarize(p, { kind: 'skill', variety: AR, direction: 'recognise' }).known).toBe(1);
-    expect(summarize(p, { kind: 'skill', variety: LEV, direction: 'recognise' }).known).toBe(0);
-    expect(summarize(p, { kind: 'skill', variety: LEV, direction: 'recognise' }).units).toBe(1);
+    expect(summarize(p, { kind: 'skill', variety: AR, modality: 'recognise' }).known).toBe(1);
+    expect(summarize(p, { kind: 'skill', variety: LEV, modality: 'recognise' }).known).toBe(0);
+    expect(summarize(p, { kind: 'skill', variety: LEV, modality: 'recognise' }).units).toBe(1);
   });
 });
 

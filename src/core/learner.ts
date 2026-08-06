@@ -233,7 +233,8 @@ export function learner(profile: Profile, context: LearnerContext): Learner {
     coverage: (text, options) =>
       coverage(profile, pack, { text, variety, direction, ...(options ?? {}) }),
 
-    summary: (scope) => summarize(profile, scope ?? { kind: 'skill', variety, direction }),
+    summary: (scope) =>
+      summarize(profile, scope ?? { kind: 'skill', variety, modality: direction }),
 
     save: () => serialize(profile),
   };

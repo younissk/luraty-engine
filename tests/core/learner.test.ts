@@ -59,7 +59,7 @@ describe('the facade produces exactly what the free functions do', () => {
       coverage(anna.profile, germanPack, { text, variety: DE, direction: 'recognise' }),
     );
     expect(anna.summary()).toEqual(
-      summarize(anna.profile, { kind: 'skill', variety: DE, direction: 'recognise' }),
+      summarize(anna.profile, { kind: 'skill', variety: DE, modality: 'recognise' }),
     );
     expect(anna.save()).toBe(serialize(anna.profile));
   });
@@ -245,6 +245,6 @@ describe('direction', () => {
     expect(speak.profile.units[unitKey('produce', DE, 'haus')]).toBeDefined();
     expect(speak.profile.units[unitKey('recognise', DE, 'haus')]).toBeUndefined();
     // And the default summary is scoped to that skill, not blurred across the profile.
-    expect(speak.summary().scope).toEqual({ kind: 'skill', variety: DE, direction: 'produce' });
+    expect(speak.summary().scope).toEqual({ kind: 'skill', variety: DE, modality: 'produce' });
   });
 });

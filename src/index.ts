@@ -10,8 +10,17 @@
 // persistence, language packs, coverage, and planning.
 
 // ── Identifiers ─────────────────────────────────────────────────────────────────────────────────
-export type { Day, Direction, UnitKey, UnitParts, Variety } from './model/index.js';
-export { DIRECTIONS, day, isUnitKey, parseUnitKey, unitKey, variety } from './model/index.js';
+export type { Day, Direction, Modality, UnitKey, UnitParts, Variety } from './model/index.js';
+export {
+  DIRECTIONS,
+  MODALITIES,
+  day,
+  isModality,
+  isUnitKey,
+  parseUnitKey,
+  unitKey,
+  variety,
+} from './model/index.js';
 
 // ── What the engine believes ────────────────────────────────────────────────────────────────────
 // One flat shape per unit, plus a rung ladder. `Learning | Understood | Box` are GONE: under a

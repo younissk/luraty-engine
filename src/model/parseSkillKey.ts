@@ -1,9 +1,12 @@
 /**
  * Read a skill key back into its parts.
  *
- * ⚠️ **THE SIBLING OF `parseUnitKey`, AND SEPARATE ON PURPOSE.** `UnitParts.direction` is a
- * `Direction`, and a skill has none — widening that type would make every existing caller handle a
- * case that cannot happen for the keys they deal with. Two parsers, each total over its own shape.
+ * ⚠️ **`parseUnitKey` NOW HANDLES SKILL KEYS TOO (ADR-0022), SO THIS IS A CONVENIENCE RATHER THAN A
+ * NECESSITY.** It used to be load-bearing: `UnitParts.direction` was a `Direction` and a skill has
+ * none, so `parseUnitKey` rejected `skill:` outright and this was the only way to read one. Now the
+ * first segment is a `Modality` and both parse. What this still buys is the SHAPE — it returns
+ * `{ variety, skill }`, so a caller that has already established it holds a skill does not have to
+ * re-check a modality field it knows the value of.
  *
  * ⚠️ **A HOST USES THIS TO DECIDE WHAT TO DRAW.** The scheduler never calls it; the moment `plan()`
  * asks what kind of unit something is, grammar has its own scheduler again.
