@@ -168,7 +168,7 @@ describe('summarize partitions the profile exactly', () => {
     ]);
 
     const all = summarize(p, { kind: 'all' }).units;
-    const skill = summarize(p, { kind: 'skill', variety: V, direction: 'recognise' }).units;
+    const skill = summarize(p, { kind: 'skill', variety: V, modality: 'recognise' }).units;
     expect(all).toBe(1);
     expect(skill).toBe(1);
     // The unit is still in the profile — `record` does not silently drop evidence — it is simply not

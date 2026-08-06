@@ -90,11 +90,7 @@ describe('unitKey and parseUnitKey', () => {
 
   it('round-trips every part', () => {
     const key = unitKey('produce', AR, 'كتاب');
-    expect(parseUnitKey(key)).toEqual({
-      direction: 'produce',
-      variety: 'ar-msa',
-      word: 'كتاب',
-    });
+    expect(parseUnitKey(key)).toEqual({ modality: 'produce', variety: 'ar-msa', word: 'كتاب' });
   });
 
   it('round-trips a word containing colons', () => {
@@ -123,7 +119,7 @@ describe('unitKey and parseUnitKey', () => {
 
   it('accepts both directions and only those', () => {
     for (const direction of DIRECTIONS) {
-      expect(parseUnitKey(`${direction}:fr:x`)?.direction).toBe(direction);
+      expect(parseUnitKey(`${direction}:fr:x`)?.modality).toBe(direction);
     }
     expect(parseUnitKey('recognize:fr:x')).toBeUndefined(); // American spelling is not a direction
   });
@@ -137,7 +133,7 @@ describe('unitKey and parseUnitKey', () => {
         (direction, v, word) => {
           const key = unitKey(direction, variety(v), word);
           const parts = parseUnitKey(key);
-          expect(parts).toEqual({ direction, variety: v, word });
+          expect(parts).toEqual({ modality: direction, variety: v, word });
         },
       ),
     );

@@ -12,14 +12,14 @@
  * @module
  */
 
-import type { Claim, Day, Direction, Variety } from '../../model/index.js';
+import type { Claim, Day, Modality, Variety } from '../../model/index.js';
 import { keysFor } from './keysFor.js';
 
 export function claimsFor(
-  direction: Direction,
+  modality: Modality,
   v: Variety,
   words: readonly string[],
   day: Day,
 ): readonly Claim[] {
-  return keysFor(direction, v, words).map((unit) => ({ kind: 'claim', unit, day }));
+  return keysFor(modality, v, words).map((unit) => ({ kind: 'claim', unit, day }));
 }

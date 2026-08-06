@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { unitKey, variety, type Day } from '../../src/model/index.js';
+import { MODALITIES, unitKey, variety, type Day } from '../../src/model/index.js';
 import { isKnown, KNOWN_AT_STRENGTH, MAX_STRENGTH } from '../../src/model/index.js';
 import { arbEvidence } from '../../src/testing/evidence.js';
 
@@ -104,10 +104,15 @@ describe('summarize — laws', () => {
     fc.assert(
       fc.property(anyProfile, (profile) => {
         const all = summarize(profile, { kind: 'all' }).units;
-        const parts = (['recognise', 'produce'] as const).flatMap((direction) =>
-          [AR, LEV].map((v) => summarize(profile, { kind: 'skill', variety: v, direction }).units),
+        // ⚠️ **EVERY MODALITY, NOT THE TWO DIRECTIONS (ADR-0022).** `parseUnitKey` now accepts all
+        // six, so a `skill:` or `pronounce:` unit reaches `'all'`. Iterating only recognise/produce
+        // here would leave those units in the whole and in no part — and this assertion would report
+        // the partition broken rather than the test being narrow, which is the better failure but
+        // only if the scopes are actually complete.
+        const parts = MODALITIES.flatMap((modality) =>
+          [AR, LEV].map((v) => summarize(profile, { kind: 'skill', variety: v, modality }).units),
         );
-        // The four skills partition the profile — nothing is double-counted and nothing is dropped.
+        // The scopes partition the profile — nothing is double-counted and nothing is dropped.
         expect(parts.reduce((a, b) => a + b, 0)).toBe(all);
       }),
     );

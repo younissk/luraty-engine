@@ -14,6 +14,8 @@
 // ── Identifiers ─────────────────────────────────────────────────────────────────────────────────
 export { day } from './day.js';
 export { isDirection } from './isDirection.js';
+export { isModality } from './isModality.js';
+export { MODALITIES } from './modalities.js';
 export { isUnitKey } from './isUnitKey.js';
 export { parseSkillKey, type SkillParts } from './parseSkillKey.js';
 export { SKILL, isSkill, skillKey } from './skillKey.js';
@@ -24,6 +26,7 @@ export type { Brand } from './types/brand.js';
 export type { Day } from './types/day.js';
 export type { DayOf } from './types/dayOf.js';
 export type { Direction } from './types/direction.js';
+export type { Modality } from './types/modality.js';
 export type { UnitKey } from './types/unitKey.js';
 export type { UnitParts } from './types/unitParts.js';
 export type { Variety } from './types/variety.js';

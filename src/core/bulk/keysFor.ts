@@ -16,17 +16,17 @@
  * @module
  */
 
-import { unitKey, type Direction, type UnitKey, type Variety } from '../../model/index.js';
+import { unitKey, type Modality, type UnitKey, type Variety } from '../../model/index.js';
 
 export function keysFor(
-  direction: Direction,
+  modality: Modality,
   v: Variety,
   words: readonly string[],
 ): readonly UnitKey[] {
   const out: UnitKey[] = [];
   for (const word of words) {
     if (word.length === 0) continue;
-    out.push(unitKey(direction, v, word));
+    out.push(unitKey(modality, v, word));
   }
   return out;
 }
