@@ -150,9 +150,13 @@ Three test files carry more weight than their names suggest:
 Each folder has a README stating what belongs in it and what does not. Read the one for the folder
 you are about to edit — they carry the rules that the types cannot.
 
-A **language pack** is injected, never imported: four small functions (`split`, `key`, `rank`,
-`compare`) plus data (a frequency list, a lemma table). Packs are ideally pure config + data files,
-so adding a language is not a code change. The engine never loads the data itself — the host does.
+A **language pack** is injected, never imported: five small functions (`split`, `key`, `candidates`,
+`rank`, `compare`) plus data (a frequency list, a lemma table — whose rows may list more than one
+lemma, primary first, because an unvocalised script genuinely has more than one reading per form).
+Packs are ideally pure config + data files, so adding a language is not a code change. The engine
+never loads the data itself — the host does. ⚠️ **`candidates` is the one function the engine never
+calls**: it exists for a host rendering help, and `candidates(s)[0] === key(s)` is enforced by
+`checkPack` so the two can never drift.
 See [docs/guides/adding-a-language.md](docs/guides/adding-a-language.md).
 
 ## Distribution
@@ -260,9 +264,19 @@ branches, and branches nothing pins are a score going down while every test stay
   running first" while `Ä: 'ae' → Ä: ''` survived a full run. `text.test.ts` now pins both.
   **A sentence in a docstring is not a test, and the mutation lane is the only thing that says so.**
 
-**`pack.ts` at 71% is now the weakest file in the package**, with 65 survivors and 9 uncovered
+~~**`pack.ts` at 71% is now the weakest file in the package**, with 65 survivors and 9 uncovered
 mutants — the compound splitter and the affix guards are the thin part. Untouched debt rather than
-new: it was the weakest before this too.
+new: it was the weakest before this too.~~
+
+⚠️ **`pack.ts` MEASURED AT 85.82% ON 2026-08-07** (149 killed, 81 timeout, 29 survived, 9 uncovered),
+on a scoped re-run — `npx stryker run --mutate src/core/pack.ts`, eight minutes rather than fifteen.
+It moved because `candidates` arrived with three new suites, and the tests written for the NEW
+behaviour incidentally pinned a lot of the old: the lemma-table build is shared, so laws about
+normalization, deduplication and empty rows now cover code that only the compound splitter used to
+touch. **The overall package figure above is therefore stale and understated; a full run is what
+makes a new one a fact.** The surviving mutants worth knowing about are still the same family — the
+`tokenize` shape guard and the `{ ok: true }` return, both of which every caller destructures
+without checking.
 
 `plan.ts` is the file worth reading twice. v3 roughly tripled it and its FIRST reading was **80.5%**
 with 30 survivors, down from 88 — the new code (the deferred pass, the claim anchor, the two
@@ -312,7 +326,7 @@ packs end to end, sorting, ids, a 20-day record→serialize→deserialize loop, 
 line**. The output is text rather than a hash precisely so a failure names the input that broke.
 `fingerprint.test.ts` keeps the fingerprint itself from rotting into something that covers nothing.
 
-Status: **574 checks identical**. Measured on Hermes v0.13.0, not assumed:
+Status: **1,014 checks identical** (574 before `candidates` joined the fingerprint on 2026-08-07). Measured on Hermes v0.13.0, not assumed:
 
 | API                           | Hermes                                                 |
 | ----------------------------- | ------------------------------------------------------ |

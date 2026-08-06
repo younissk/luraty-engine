@@ -47,6 +47,7 @@ function build(config: PackConfig, data: PackData): LanguagePack {
     id: variety(config.id) ?? variety('broken-fixture'),
     split: boom,
     key: boom,
+    candidates: boom,
     rank: boom,
     compare: boom,
   };
@@ -119,7 +120,24 @@ const ARABIC_CONFIG: PackConfig = {
 const ARABIC_DATA: PackData = {
   frequency:
     'في من على أن إلى عن مع هذا التي كان قد لا ما هو كل بعد بين حول عند سوق كتاب مدرسة بيت ماء خبز ' +
-    'شارع مطار طبيب قطار جريدة حكومة ولد وقت مدينة',
+    'شارع مطار طبيب قطار جريدة حكومة ولد وقت مدينة كتب مدرس',
+  // ⚠️ **THE ONE FIXTURE WHERE A FORM HAS MORE THAN ONE READING, AND IT IS REAL ARABIC RATHER THAN
+  // AN INVENTED AMBIGUITY.** Written Arabic drops the short vowels, so both rows below are one
+  // string on the page and two different words underneath.
+  //
+  // ⚠️ **AND THE FIXTURE IS ALSO THE HONEST LIMIT OF THIS FORMAT.** Both rows work because the two
+  // readings have DIFFERENT lemmas. Arabic's commonest ambiguity does not: ذهب is *he went* and
+  // *gold*, علم is *knowledge* and *flag*, and each pair shares one consonant skeleton, so both
+  // readings normalize to the same lemma and this table cannot tell them apart — nor can the unit
+  // key, which means the engine credits one when the learner meets the other. Candidate lemmas are
+  // necessary for glossing an unvocalised script and they are not sufficient; separating senses
+  // that share a lemma needs a glossary keyed by sense, which no pack carries.
+  lemmas: {
+    // *he wrote* (كَتَبَ, lemma كتب) and *books* (كُتُب, plural of كتاب).
+    كتب: ['كتب', 'كتاب'],
+    // *school* (مَدْرَسَة) and *a female teacher* (مُدَرِّسَة, lemma مدرس).
+    مدرسة: ['مدرسة', 'مدرس'],
+  },
 };
 
 export const arabicPack: LanguagePack = build(ARABIC_CONFIG, ARABIC_DATA);

@@ -155,4 +155,4 @@ export { deserialize, serialize } from './core/persist.js';
  * Pinned to `package.json` by `src/boundary.test.ts`, so it cannot drift into a comfortable lie.
  * Bump it in the same commit as any breaking change to the exports above.
  */
-export const ENGINE_API_VERSION = '0.4.0';
+export const ENGINE_API_VERSION = '0.5.0';

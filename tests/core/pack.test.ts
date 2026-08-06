@@ -131,6 +131,7 @@ describe('the engine cannot tell the two apart', () => {
       expect(typeof pack.id).toBe('string');
       expect(typeof pack.split).toBe('function');
       expect(typeof pack.key).toBe('function');
+      expect(typeof pack.candidates).toBe('function');
       expect(typeof pack.rank).toBe('function');
       expect(typeof pack.compare).toBe('function');
     }
