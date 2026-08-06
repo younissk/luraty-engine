@@ -43,6 +43,14 @@ const CORPUS = [
   'على',
   'ولد',
   'وقت',
+  // ⚠️ **THE TWO AMBIGUOUS ROWS OF THE ARABIC FIXTURE, AND WITHOUT THEM THE `candidates` LINES ARE
+  // DUPLICATES.** Measured: over the rest of this corpus every token has exactly one reading, so
+  // `candidates(t).join('+')` is byte-identical to `key(t)` on all 72 tokens — 114 lines of new
+  // fingerprint carrying no new discriminating power, which is the opposite of what the lane is
+  // for. These two produce a LIST, so a reordering or a shortening between Node and Hermes is
+  // finally observable, which is the stated reason `candidates` joined the fingerprint at all.
+  'كتب',
+  'مدرسة',
   // Latin: accents, ligatures, the sharp s that expands to two characters.
   'marché',
   'MARCHÉ',
@@ -133,6 +141,17 @@ export function fingerprint(): string {
       lines.push(`${pack.id} split | ${show(input)} | ${tokens.map(show).join('~')}`);
       lines.push(`${pack.id} key | ${show(input)} | ${keys.map(show).join('~')}`);
       lines.push(`${pack.id} rank | ${show(input)} | ${ranks.join(',')}`);
+      // ⚠️ THE CANDIDATE LIST IS ON THE FINGERPRINT BECAUSE IT IS WHAT A LEARNER PICKS FROM. It
+      // runs the same normalize chain `key` does, so a divergence between Node and Hermes shows up
+      // here first as a reordered or shortened list — and a reordered list changes which reading is
+      // the primary, which changes the unit key the pick credits. Silent on the phone only.
+      // ⚠️ `,` BETWEEN READINGS, NOT `+`. `show()` encodes non-ASCII as `U+XXXX`, so a `+` separator
+      // is ambiguous with the encoding itself and a failure line cannot be read back.
+      lines.push(
+        `${pack.id} candidates | ${show(input)} | ${tokens
+          .map((t) => pack.candidates(t).map(show).join(','))
+          .join('~')}`,
+      );
       lines.push(
         `${pack.id} compare-self | ${show(input)} | ${String(pack.compare(input, input))}`,
       );

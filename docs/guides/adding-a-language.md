@@ -4,17 +4,18 @@
 > this way — French, Arabic (MSA) and German, in [`src/testing/packs.ts`](../../src/testing/packs.ts).
 > Read that file next; it is the worked example this guide describes.
 
-The engine knows no language. Everything language-specific is injected as a **pack**: four small
+The engine knows no language. Everything language-specific is injected as a **pack**: five small
 functions plus data.
 
 ## The contract
 
-|           | what it does                 | French                    | Arabic                              | German                        |
-| --------- | ---------------------------- | ------------------------- | ----------------------------------- | ----------------------------- |
-| `split`   | text → pieces                | on spaces and punctuation | on spaces                           | on spaces                     |
-| `key`     | are these two the same word? | `vais` → `aller`          | `السوق` → `سوق` (strip the article) | `Bahnhofstraße` → `strasse`   |
-| `rank`    | how common is it             | frequency list            | frequency list                      | frequency list                |
-| `compare` | is this answer right         | fold accents              | fold diacritics                     | umlauts two-letter (`ö`→`oe`) |
+|              | what it does                 | French                    | Arabic                              | German                        |
+| ------------ | ---------------------------- | ------------------------- | ----------------------------------- | ----------------------------- |
+| `split`      | text → pieces                | on spaces and punctuation | on spaces                           | on spaces                     |
+| `key`        | are these two the same word? | `vais` → `aller`          | `السوق` → `سوق` (strip the article) | `Bahnhofstraße` → `strasse`   |
+| `candidates` | what word is this?           | one reading               | `كتب` → _he wrote_ or _books_       | one reading                   |
+| `rank`       | how common is it             | frequency list            | frequency list                      | frequency list                |
+| `compare`    | is this answer right         | fold accents              | fold diacritics                     | umlauts two-letter (`ö`→`oe`) |
 
 The engine sees four keys for one sentence and three for another and has no idea that one of them
 needed an article stripped off. That is the whole point.
@@ -159,6 +160,11 @@ It reports:
 - **`tokenizer-matches-nothing`** — the pattern does not cover this script.
 - **`unstable-key`** — `key(key(w)) !== key(w)`, so one word files itself under two keys depending on
   the route it took. Reported once, not once per token.
+- **`candidates-empty`** / **`candidates-disagree-with-key`** / **`candidates-repeat`** /
+  **`candidates-not-canonical`** — the four ways a multi-column lemma table goes wrong. All four are
+  silent: the reader taps a word, picks a reading, and is credited for a unit the engine does not
+  address — so the scheduler goes on treating the word as unmet however often she looks it up. Each
+  is reported once, for the reason `unstable-key` is.
 - **`compare-always-true`** / **`compare-rejects-identity`** — grading is broken. "Marks everything
   correct" is the worst failure this package can have and the one nobody reports, because learners
   do not complain about being told they are right.

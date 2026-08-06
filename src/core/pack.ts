@@ -272,20 +272,82 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
   // umlaut (`"zählt": "zählen"`) the raw value `zählen` and the normalized `zaehlen` are two
   // different addresses for one word. Normalizing both ends means a pack file can be written in
   // ordinary German and still address knowledge consistently.
-  const lemmas = new Map<string, Lemma>();
+  //
+  // ⚠️ ONE MAP HOLDS THE WHOLE LIST, AND `key` READS ELEMENT ZERO — rather than two maps kept in
+  // step. A pack whose `key` table and `candidates` table could disagree is the same defect as the
+  // frequency list and `key()` disagreeing (#106) and the normalize chain and the lemma table
+  // disagreeing (see `buildRanks`): two descriptions of one language, with nothing making them
+  // agree. Deriving one from the other by construction is the only fix that stays fixed.
+  //
+  // ⚠️ **A NON-EMPTY TUPLE TYPE, NOT `readonly Lemma[]`** — so `key`'s read of element zero is a
+  // definite string rather than a `!` assertion over a hope. The invariant that every stored list
+  // has a member is enforced below and then carried by the type, which is the same "make illegal
+  // states unrepresentable" move the house style asks for everywhere else.
+  const lemmas = new Map<string, readonly [Lemma, ...Lemma[]]>();
   // `Object.keys` and an indexed read, not `Object.entries` — the German table is 15,471 rows and
   // `entries` would materialise that many throwaway two-element arrays before the first row is
   // normalized. This runs once, at app launch, on the path measured at 286 ms under Hermes.
   const table = data.lemmas ?? {};
   for (const surface of Object.keys(table)) {
-    const lemma = table[surface];
-    if (lemma === undefined) continue;
+    const entry = table[surface];
+    if (entry === undefined) continue;
     const from = applySteps(normalize, surface);
-    const to = applySteps(normalize, lemma);
-    if (from.length === 0 || to.length === 0) continue;
+    if (from.length === 0) continue;
     // First entry wins, matching `buildRanks` — a duplicate later in the file is the author's
-    // second thought, and silently overwriting makes the first one vanish without a word.
-    if (!lemmas.has(from)) lemmas.set(from, to);
+    // second thought, and silently overwriting makes the first one vanish without a word. Checked
+    // BEFORE the values are normalized, so a duplicate costs nothing on a 90k-row table.
+    if (lemmas.has(from)) continue;
+
+    // ⚠️ **ACCUMULATED STRAIGHT INTO THE TUPLE — ONE ARRAY PER ROW — AND THE OBVIOUS VERSIONS COST
+    // A COLD START.** This loop runs at module load for all three bundled packs, 192,930 rows
+    // between them, before the first frame. Measured on the Hermes VM the app actually ships:
+    //
+    //   - wrapping a bare string in `[entry]`, collecting into `Lemma[]`, then
+    //     `const [primary, ...rest] = to; lemmas.set(from, [primary, ...rest])` is FOUR arrays per
+    //     row — five in the app, because `babel-preset-expo` lowers the destructure to
+    //     `_arrayLikeToArray(to).slice(1)`, which copies twice. **+151 ms and +12.3 MB retained.**
+    //   - casting the collected `Lemma[]` straight to the tuple removes the copies and is WORSE:
+    //     `[]` plus `push()` retains 192 bytes for a one-element array, against 64 for a literal
+    //     sized at construction. **+15.25 MB**, 10.9 MB worse than the code it replaced.
+    //
+    // Every one of those lists has exactly one element today — `awk -F'\t' 'NF>2'` returns zero
+    // rows on all three `lemmas.tsv` — so the cost bought the ABILITY to express a second reading
+    // that no shipped pack expresses. This form allocates the one-element literal at exact size and
+    // never copies, recovering 118 of the 151 ms with the same type.
+    //
+    // ⚠️ The `for…of` below is fine BECAUSE of the branch above it: the iterator it allocates is now
+    // paid only by rows that genuinely list several readings, of which the shipped packs have zero.
+    // What cost a cold start was iterating a `[entry]` wrapper built for EVERY row, string or not.
+    //
+    // ⚠️ `undefined` until the first usable reading, which is also what establishes the non-empty
+    // tuple type — no cast, no `!`, and a row whose every candidate normalizes away simply never
+    // assigns. That row is then treated as ABSENT, so `key` falls through to affix stripping exactly
+    // as it does for a form the table omits, rather than mapping the form to "" and filing it under
+    // a unit key that names no word.
+    let to: [Lemma, ...Lemma[]] | undefined;
+    if (typeof entry === 'string') {
+      const normalized = applySteps(normalize, entry);
+      if (normalized.length !== 0) to = [normalized];
+      // Widened to `unknown` per element for the same reason every other field in this function is
+      // checked: the declared type is a claim about intent, and this arrives from a generated file.
+    } else if (Array.isArray(entry)) {
+      const listed: readonly unknown[] = entry;
+      for (const candidate of listed) {
+        if (typeof candidate !== 'string') continue;
+        const normalized = applySteps(normalize, candidate);
+        // A lemma that normalizes away is not a lemma. Dropping it here rather than storing "" is
+        // what keeps `candidates` from ever handing a caller an empty string to render.
+        if (normalized.length === 0) continue;
+        // ⚠️ DEDUPED AFTER NORMALIZATION, NOT BEFORE. Two spellings of one lemma are one reading,
+        // and in an unvocalised script that is the ordinary case rather than an author's mistake:
+        // كَتَبَ and كتب are the same row written twice. Left in, the reader is offered the same
+        // sense twice and asked to choose between it, which is worse than no choice at all.
+        if (to === undefined) to = [normalized];
+        else if (!to.includes(normalized)) to.push(normalized);
+      }
+    }
+    if (to === undefined) continue;
+    lemmas.set(from, to);
   }
 
   // Longest prefix first, so ال is tried before ا and the more specific rule wins.
@@ -349,12 +411,24 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
     return undefined;
   }
 
-  function key(surface: string): Lemma {
-    const normalized = applySteps(normalize, surface);
+  /**
+   * `key`, entered one step later — the caller has already normalized.
+   *
+   * ⚠️ **EXTRACTED SO `candidates` CAN REUSE ITS OWN NORMALIZATION INSTEAD OF REDOING IT.** The two
+   * both needed the normalized form and both computed it, so a `candidates` miss ran the whole
+   * normalize chain twice and looked the map up twice — measured at **2.0× the cost of `key`** on
+   * Hermes, on a path where 60% of the tokens in the Arabic pack's own sample text miss. It is one
+   * implementation still, which is the whole of `candidates`' argument for delegating here.
+   */
+  function keyOfNormalized(normalized: string): Lemma {
     // An explicit lemma entry beats a derived one: irregular forms are exactly the ones affix rules
     // get wrong, and they are why the map exists.
+    //
+    // ⚠️ ELEMENT ZERO, AND THE TABLE GUARANTEES THERE IS ONE — every list reaching the map has at
+    // least one member, so this is not an optional read dressed as a definite one. The primary is
+    // whatever the pack author wrote first; the engine has no basis on which to reorder it.
     const mapped = lemmas.get(normalized);
-    if (mapped !== undefined) return mapped;
+    if (mapped !== undefined) return mapped[0];
 
     const stripped = stripPrefixes(normalized);
     // A word the list already knows is never a compound — `Fenster` must not decompose into
@@ -371,6 +445,35 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
     return stripped;
   }
 
+  function key(surface: string): Lemma {
+    return keyOfNormalized(applySteps(normalize, surface));
+  }
+
+  /**
+   * Every reading of a surface form, likeliest first.
+   *
+   * ⚠️ **IT DEFERS TO `key`'s OWN BODY FOR EVERYTHING THE TABLE DOES NOT LIST, RATHER THAN
+   * REPEATING ITS LOGIC.** Affix stripping and compound splitting are guesses too — arguably better
+   * candidate generators than the table — and re-deriving them here would be a second
+   * implementation of `key`, free to drift from the first. `keyOfNormalized` is that body, shared
+   * rather than copied, so the two enter the same code one step apart and cannot disagree.
+   *
+   * The consequence is worth stating: a form reached by stripping ال off a word comes back as one
+   * candidate, not two, even though the unstripped form may also be a word. Widening that is a
+   * decision about how much doubt to show a reader, and it belongs in a pack's data rather than in
+   * a rule the engine applies to every language at once.
+   */
+  function candidates(surface: string): readonly Lemma[] {
+    const normalized = applySteps(normalize, surface);
+    const listed = lemmas.get(normalized);
+    if (listed !== undefined) return listed;
+    // ⚠️ NEVER EMPTY. The contract promises at least one element and promises the first is `key`'s
+    // answer, and both are what let a caller render this list without a length check. `key` on an
+    // unknown form returns the normalized form itself, which is the honest single candidate: it is
+    // what the engine would address the word by if the learner proved it.
+    return [keyOfNormalized(normalized)];
+  }
+
   const pack: LanguagePack = {
     id: packVariety,
 
@@ -383,6 +486,8 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
     },
 
     key,
+
+    candidates,
 
     rank(lemma: Lemma): number | undefined {
       return ranks.get(lemma);

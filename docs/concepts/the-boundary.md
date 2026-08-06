@@ -45,7 +45,7 @@ Nothing is imported in. Everything arrives as an argument:
 
 - **Time** — `day`, a number on the profile and on every piece of evidence.
 - **Randomness** — a `seed` in the options.
-- **Language knowledge** — an injected language pack (four functions plus data).
+- **Language knowledge** — an injected language pack (five functions plus data).
 - **Content** — never fetched. `plan()` returns a _description_ of what it needs; the host fetches
   it and passes it back. This is what makes the engine testable with no database at all.
 
