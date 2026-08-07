@@ -287,9 +287,22 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
   // `Object.keys` and an indexed read, not `Object.entries` — the German table is 15,471 rows and
   // `entries` would materialise that many throwaway two-element arrays before the first row is
   // normalized. This runs once, at app launch, on the path measured at 286 ms under Hermes.
+  //
+  // ⚠️ **BOTH SHAPES, AND NEITHER PATH MATERIALISES A PAIR PER ROW.** `PackData.lemmas` accepts a
+  // `ReadonlyMap` because a plain object caps at 196,607 own properties on Hermes (see the type).
+  // `Object.entries` and `Map.prototype.entries` would BOTH allocate a two-element array per row —
+  // the exact cost the note below this loop measures at +151 ms — so each shape is walked by its
+  // keys and read by index. The branch is hoisted; it is one predictable test on a local, not a
+  // type check per row.
   const table = data.lemmas ?? {};
-  for (const surface of Object.keys(table)) {
-    const entry = table[surface];
+  const mapped =
+    table instanceof Map ? (table as ReadonlyMap<string, string | readonly string[]>) : undefined;
+  // Always an object, empty when the Map path is taken, so neither read below needs a `!`.
+  const record: Readonly<Record<string, string | readonly string[]>> =
+    mapped === undefined ? (table as Readonly<Record<string, string | readonly string[]>>) : {};
+  const surfaces: Iterable<string> = mapped === undefined ? Object.keys(record) : mapped.keys();
+  for (const surface of surfaces) {
+    const entry = mapped === undefined ? record[surface] : mapped.get(surface);
     if (entry === undefined) continue;
     const from = applySteps(normalize, surface);
     if (from.length === 0) continue;
@@ -310,10 +323,12 @@ export function createPack(config: PackConfig, data: PackData): Decoded<Language
     //     `[]` plus `push()` retains 192 bytes for a one-element array, against 64 for a literal
     //     sized at construction. **+15.25 MB**, 10.9 MB worse than the code it replaced.
     //
-    // Every one of those lists has exactly one element today — `awk -F'\t' 'NF>2'` returns zero
-    // rows on all three `lemmas.tsv` — so the cost bought the ABILITY to express a second reading
-    // that no shipped pack expresses. This form allocates the one-element literal at exact size and
-    // never copies, recovering 118 of the 151 ms with the same type.
+    // ⚠️ This note used to say every list has exactly one element and no shipped pack expresses a
+    // second reading. That stopped being true with lughaty#177 / ADR-0028: `packs/ar` now carries
+    // **5,092 rows with an alternate**, so the multi-reading branch below is live code on the cold
+    // path rather than an unused capability. The single-string fast path still covers the other
+    // ~111k rows, which is why it is a branch and not a uniform wrap. This form allocates the
+    // one-element literal at exact size and never copies, recovering 118 of the 151 ms.
     //
     // ⚠️ The `for…of` below is fine BECAUSE of the branch above it: the iterator it allocates is now
     // paid only by rows that genuinely list several readings, of which the shipped packs have zero.

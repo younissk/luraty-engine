@@ -238,3 +238,75 @@ describe('split', () => {
     expect(first).toHaveLength(4);
   });
 });
+
+describe('the lemma table may be a Map — lughaty#210', () => {
+  /**
+   * ⚠️ **A PLAIN OBJECT CAPS AT 196,607 OWN PROPERTIES ON HERMES**, measured in
+   * `docs/guides/benchmarking.md`, and every lane in this repo runs on Node where the limit does
+   * not exist. Arabic reached 192,159 rows — 2.3% of headroom — and had to be held back by a
+   * frequency floor (lughaty#206) until `PackData.lemmas` could take a `ReadonlyMap`.
+   *
+   * The whole claim is that the two shapes are INDISTINGUISHABLE downstream, so these compare a
+   * Map-backed pack against a Record-backed one built from the same rows rather than asserting
+   * against hand-written expectations, which could drift from the object path.
+   */
+  const rows: Record<string, string | readonly string[]> = {
+    chevaux: 'cheval',
+    chevals: 'cheval',
+    portes: ['porte', 'porter'],
+  };
+
+  const fromRecord = createPack(fixtures.frenchConfig, { ...fixtures.frenchData, lemmas: rows });
+  const fromMap = createPack(fixtures.frenchConfig, {
+    ...fixtures.frenchData,
+    lemmas: new Map(Object.entries(rows)),
+  });
+
+  it('builds from either shape', () => {
+    expect(fromRecord.ok).toBe(true);
+    expect(fromMap.ok).toBe(true);
+  });
+
+  it('keys every surface identically', () => {
+    if (!fromRecord.ok || !fromMap.ok) throw new Error('both packs must build');
+    // ⚠️ Fixtures that DIFFER from their own key — a form identical to its lemma is a fixed point
+    // and cannot observe the transform, which is how 432 green tests once missed a keying bug.
+    for (const surface of ['chevaux', 'chevals', 'portes', 'cheval', 'inconnu']) {
+      expect(fromMap.value.key(surface)).toBe(fromRecord.value.key(surface));
+    }
+    expect(fromMap.value.key('chevaux')).toBe('cheval');
+  });
+
+  it('offers the same candidates, multi-reading rows included', () => {
+    if (!fromRecord.ok || !fromMap.ok) throw new Error('both packs must build');
+    for (const surface of ['portes', 'chevaux', 'inconnu']) {
+      expect(fromMap.value.candidates(surface)).toEqual(fromRecord.value.candidates(surface));
+    }
+    // The branch that only a Map-or-object difference could break silently: a row with two readings.
+    expect(fromMap.value.candidates('portes')).toEqual(['porte', 'porter']);
+    expect(fromMap.value.candidates('portes')[0]).toBe(fromMap.value.key('portes'));
+  });
+
+  it('drops an unusable row from a Map exactly as it does from an object', () => {
+    const bad = { '': 'cheval', chevaux: '' } as Record<string, string>;
+    const rec = createPack(fixtures.frenchConfig, { ...fixtures.frenchData, lemmas: bad });
+    const map = createPack(fixtures.frenchConfig, {
+      ...fixtures.frenchData,
+      lemmas: new Map(Object.entries(bad)),
+    });
+    expect(map.ok).toBe(rec.ok);
+    if (rec.ok && map.ok) {
+      // A row whose lemma normalizes away is treated as ABSENT, so `key` falls through to affix
+      // stripping rather than filing the form under "".
+      expect(map.value.key('chevaux')).toBe(rec.value.key('chevaux'));
+    }
+  });
+
+  it('is not fooled by an empty Map', () => {
+    // Vacuity: `new Map()` must behave like `{}`, not like "no table at all" in some third way.
+    const map = createPack(fixtures.frenchConfig, { ...fixtures.frenchData, lemmas: new Map() });
+    const rec = createPack(fixtures.frenchConfig, { ...fixtures.frenchData, lemmas: {} });
+    expect(map.ok && rec.ok).toBe(true);
+    if (map.ok && rec.ok) expect(map.value.key('chevaux')).toBe(rec.value.key('chevaux'));
+  });
+});

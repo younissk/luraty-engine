@@ -33,6 +33,20 @@ export type PackData = {
    *
    * Empty arrays, and entries that normalize away to nothing, are dropped — a form left with no
    * usable lemma is treated as absent from the table rather than as a form that keys to "".
+   *
+   * ⚠️ **A `ReadonlyMap` IS ACCEPTED, AND FOR A LARGE TABLE IT IS THE ONLY SAFE SHAPE.** A plain
+   * object holds one own property per row, and **Hermes caps a plain object at 196,607 own
+   * properties** — measured, `docs/guides/benchmarking.md`, the same ceiling recorded there for
+   * `Profile.units`. Hermes is the runtime React Native ships and the only one where the limit
+   * exists, so a pack that crosses it builds fine, tests green on Node, and dies on the device at
+   * module load. Arabic reached 192,159 rows and had to be capped by a frequency floor to stay
+   * under it (lughaty#206, ADR-0033) before this existed.
+   *
+   * `createPack` copies either shape into a `Map` anyway, so an object was always a transient that
+   * existed to satisfy this type. A pack with more than ~100k rows should build the `Map` directly:
+   * no ceiling, one fewer full copy at launch.
    */
-  readonly lemmas?: Readonly<Record<string, string | readonly string[]>>;
+  readonly lemmas?:
+    | Readonly<Record<string, string | readonly string[]>>
+    | ReadonlyMap<string, string | readonly string[]>;
 };
