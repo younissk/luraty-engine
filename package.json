@@ -44,24 +44,24 @@
     "bench": "node scripts/bench.mjs"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.31.1",
-    "@commitlint/cli": "^21.2.1",
+    "@changesets/cli": "^3.0.2",
+    "@commitlint/cli": "^21.2.2",
     "@commitlint/config-conventional": "^21.2.0",
-    "@eslint/js": "^9.39.5",
-    "@stryker-mutator/core": "^9.6.1",
-    "@stryker-mutator/vitest-runner": "^9.6.1",
-    "@vitest/coverage-v8": "^4.1.10",
-    "esbuild": "^0.28.1",
-    "eslint": "^9.39.5",
+    "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
+    "@vitest/coverage-v8": "^5.0.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.10.0",
     "eslint-config-prettier": "^10.1.8",
     "fast-check": "^4.9.0",
     "husky": "^9.1.7",
-    "lint-staged": "^17.2.0",
+    "lint-staged": "^17.5.0",
     "prettier": "^3.9.6",
-    "publint": "^0.3.22",
-    "tsdown": "^0.22.14",
-    "typescript": "~6.0.3",
-    "typescript-eslint": "^8.65.0",
-    "vitest": "^4.1.10"
+    "publint": "^0.3.24",
+    "tsdown": "^0.23.0",
+    "typescript": "~7.0.2",
+    "typescript-eslint": "^8.69.0",
+    "vitest": "^5.0.0"
   }
 }
