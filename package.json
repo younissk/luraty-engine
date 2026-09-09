@@ -36,7 +36,7 @@
     "build": "tsdown",
     "check:publish": "npm run build && publint --strict",
     "changeset": "changeset",
-    "prepare": "husky",
+    "prepare": "husky || true",
     "mutate": "stryker run",
     "coverage": "vitest run --coverage",
     "test:hermes": "node scripts/hermes.mjs",
