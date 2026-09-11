@@ -26,6 +26,8 @@ import { ENGINE_API_VERSION } from '../src/index.js';
 const pkg = pkgJson as unknown as {
   version: string;
   private?: boolean;
+  license?: string;
+  publishConfig?: { access?: string };
   exports: Record<string, unknown>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
@@ -130,8 +132,25 @@ describe('engine boundary', () => {
     expect(declaredDependencies()).not.toContain('@supabase/supabase-js');
   });
 
-  it('is private — this package is never published', () => {
-    expect(pkg.private).toBe(true);
+  it('is publishable, publicly, under MIT — and each of those is a decision', () => {
+    // ⚠️ THIS TEST USED TO ASSERT THE OPPOSITE: `pkg.private === true`, "this package is never
+    // published". It was inverted on 2026-09-11 when @luraty/engine was published to npm so that
+    // `luraty-language-packs` — a PUBLIC repo — could install it; every pack imports the engine at
+    // runtime, so a private, unpublished dependency blocked the whole packs split.
+    //
+    // The assertion is kept rather than deleted because its JOB is unchanged: publish posture is a
+    // decision, and this is where it gets made. `private` absent means npm will accept a publish;
+    // `access: public` means it lands world-readable on a free org; MIT means anyone may fork it
+    // and ship a competitor. Flipping any of these back is a founder call, not a cleanup.
+    //
+    // ⚠️ THE LICENCE **TEXT** IS DELIBERATELY NOT ASSERTED HERE. Checking that LICENSE exists
+    // means reading a file, and this package has no `@types/node` on purpose — that absence is the
+    // same boundary the tests above defend, so a `node:fs` import in this suite would breach the
+    // rule it is written to enforce. `npm run check:publish` covers it from outside: publint packs
+    // the tarball, and npm always includes LICENSE in it.
+    expect(pkg.private).toBeUndefined();
+    expect(pkg.publishConfig?.access).toBe('public');
+    expect(pkg.license).toBe('MIT');
   });
 
   it('exposes exactly one public entry point', () => {
